@@ -1460,7 +1460,7 @@ def create_enhanced_mapping_with_validation(df, existing_configuration, data_pro
         st.markdown("**Complete Required Fields First**")
         col1, col2 = st.columns([3, 2])
         with col1:
-            if st.button("✅ Apply Current Mappings", type="primary", use_container_width=True, key="enhanced_apply_mappings_v2"):
+            if st.button("✅ Apply Current Mappings", type="primary", use_container_width=True, key="enhanced_apply_partial_v2"):
                 st.session_state.field_mappings = updated_mappings
                 mapped_required_after = len([f for f in required_fields.keys() if f in updated_mappings])
                 st.success(f"Applied {len(updated_mappings)} mappings! ({mapped_required_after}/{total_required} required fields mapped)")
@@ -1485,19 +1485,19 @@ def create_enhanced_mapping_with_validation(df, existing_configuration, data_pro
                 st.info("Reset all mappings")
                 # Don't rerun - just update the state and let the interface update naturally
         with col2:
-            if st.button("💾 Save Progress", use_container_width=True, key="save_config_btn"):
+            if st.button("💾 Save Progress", use_container_width=True, key="save_partial_config_btn"):
                 st.warning(f"⚠️ Please map all {total_required} required fields before saving")
     else:
         # Required mappings complete - show prominent completion actions
         st.success("🎉 **All Required Fields Mapped!** Ready to proceed.")
         col1, col2 = st.columns([3, 2])
         with col1:
-            if st.button("✅ Apply All Mappings", type="primary", use_container_width=True, key="enhanced_apply_mappings_v2"):
+            if st.button("✅ Apply All Mappings", type="primary", use_container_width=True, key="enhanced_apply_complete_v2"):
                 st.session_state.field_mappings = updated_mappings
                 st.success(f"Applied {len(updated_mappings)} mappings! All required fields mapped ✅")
                 # Don't rerun - just update the state and let the interface update naturally
         with col2:
-            if st.button("💾 Save & Continue", type="primary", use_container_width=True, key="save_config_btn"):
+            if st.button("💾 Save & Continue", type="primary", use_container_width=True, key="save_complete_config_btn"):
                 st.session_state.ready_to_save_config = True
                 st.success("✅ Ready to proceed!")
     
@@ -1859,6 +1859,9 @@ def create_learning_enhanced_field_mapping_row(field: str, field_info: dict, df,
     """Create a field mapping row with learning indicators"""
     col1, col2, col3 = st.columns([3, 2, 1])
     
+    # Create unique key suffix based on required status
+    key_suffix = "req" if required else "opt"
+    
     with col1:
         # Get learning confidence if available
         learning_confidence = None
@@ -1913,7 +1916,7 @@ def create_learning_enhanced_field_mapping_row(field: str, field_info: dict, df,
             "Map to CSV column",
             options=column_options,
             index=default_index,
-            key=f"learning_mapping_{field}",
+            key=f"learning_mapping_{field}_{key_suffix}",
             label_visibility="collapsed"
         )
         
@@ -1930,10 +1933,10 @@ def create_learning_enhanced_field_mapping_row(field: str, field_info: dict, df,
     
     with col3:
         # Manual value option
-        if st.button("✏️", key=f"learning_manual_{field}", help="Enter manual value"):
+        if st.button("✏️", key=f"learning_manual_{field}_{key_suffix}", help="Enter manual value"):
             manual_value = st.text_input(
                 f"Manual value for {field_info['description']}", 
-                key=f"learning_manual_input_{field}",
+                key=f"learning_manual_input_{field}_{key_suffix}",
                 placeholder="Enter value..."
             )
             if manual_value:
