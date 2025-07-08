@@ -62,6 +62,13 @@ class DataProcessor:
             ],
             "trackingEvents.0.eventSource": [
                 "MACROPOINT", "4KITES", "P44", "SMC3", "CARRIER_API", "PHONE_EMAIL", "TEXT", "OTHER"
+            ],
+            # Contact role fields for carrier and brokerage
+            "carrier.contacts.0.role": [
+                "ACCOUNT_MANAGER", "OPERATIONS_REP", "CARRIER_REP", "CUSTOMER_TEAM"
+            ],
+            "brokerage.contacts.0.role": [
+                "ACCOUNT_MANAGER", "OPERATIONS_REP", "CARRIER_REP", "CUSTOMER_TEAM"
             ]
         }
     
@@ -167,6 +174,39 @@ class DataProcessor:
                 "phone_email": "PHONE_EMAIL", 
                 "text": "TEXT",
                 "other": "OTHER"
+            },
+            # Contact role mappings for carrier and brokerage
+            "carrier.contacts.0.role": {
+                "account manager": "ACCOUNT_MANAGER",
+                "account_manager": "ACCOUNT_MANAGER",
+                "am": "ACCOUNT_MANAGER",
+                "operations rep": "OPERATIONS_REP",
+                "operations_rep": "OPERATIONS_REP",
+                "ops rep": "OPERATIONS_REP",
+                "ops_rep": "OPERATIONS_REP",
+                "carrier rep": "CARRIER_REP",
+                "carrier_rep": "CARRIER_REP",
+                "customer team": "CUSTOMER_TEAM",
+                "customer_team": "CUSTOMER_TEAM",
+                "primary": "ACCOUNT_MANAGER",  # Common fallback mapping
+                "main": "ACCOUNT_MANAGER",
+                "default": "ACCOUNT_MANAGER"
+            },
+            "brokerage.contacts.0.role": {
+                "account manager": "ACCOUNT_MANAGER",
+                "account_manager": "ACCOUNT_MANAGER",
+                "am": "ACCOUNT_MANAGER",
+                "operations rep": "OPERATIONS_REP",
+                "operations_rep": "OPERATIONS_REP",
+                "ops rep": "OPERATIONS_REP",
+                "ops_rep": "OPERATIONS_REP",
+                "carrier rep": "CARRIER_REP",
+                "carrier_rep": "CARRIER_REP",
+                "customer team": "CUSTOMER_TEAM",
+                "customer_team": "CUSTOMER_TEAM",
+                "primary": "ACCOUNT_MANAGER",  # Common fallback mapping
+                "main": "ACCOUNT_MANAGER",
+                "default": "ACCOUNT_MANAGER"
             }
         }
     
@@ -1239,9 +1279,9 @@ class DataProcessor:
                 if isinstance(carrier_obj['contacts'], list):
                     for contact in carrier_obj['contacts']:
                         if isinstance(contact, dict):
-                            # Ensure each contact has required role field
+                            # Ensure each contact has required role field with valid enum value
                             if 'role' not in contact:
-                                contact['role'] = 'PRIMARY'  # Default role
+                                contact['role'] = 'CARRIER_REP'  # Default role - valid enum value
         
         # Fix brokerage contacts requirement (must be done after cleaning to avoid removal)
         if 'brokerage' in load_payload:
@@ -1257,9 +1297,9 @@ class DataProcessor:
                 if isinstance(brokerage_obj['contacts'], list):
                     for contact in brokerage_obj['contacts']:
                         if isinstance(contact, dict):
-                            # Ensure each contact has required role field
+                            # Ensure each contact has required role field with valid enum value
                             if 'role' not in contact:
-                                contact['role'] = 'PRIMARY'  # Default role
+                                contact['role'] = 'ACCOUNT_MANAGER'  # Default role - valid enum value
     
     def _clean_empty_structures(self, obj: Dict[str, Any]) -> None:
         """Remove empty nested structures from the payload"""

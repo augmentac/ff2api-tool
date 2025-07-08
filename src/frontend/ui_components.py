@@ -62,11 +62,20 @@ def get_full_api_schema():
         'bidCriteria.accessorials': {'type': 'string', 'required': False, 'description': 'Load Accessorials'},
         'bidCriteria.totalWeightLbs': {'type': 'number', 'required': False, 'description': 'Total Weight for Bidding'},
         'bidCriteria.maxBidAmountUsd': {'type': 'number', 'required': False, 'description': 'Maximum Bid Amount'},
+        
+        # Carrier Information
         'carrier.name': {'type': 'string', 'required': False, 'description': 'Carrier Name'},
         'carrier.dotNumber': {'type': 'number', 'required': False, 'description': 'DOT Number'},
+        'carrier.contacts.0.name': {'type': 'string', 'required': False, 'description': 'Carrier Contact Name'},
+        'carrier.contacts.0.email': {'type': 'string', 'required': False, 'description': 'Carrier Contact Email'},
+        'carrier.contacts.0.phone': {'type': 'string', 'required': False, 'description': 'Carrier Contact Phone'},
+        'carrier.contacts.0.role': {'type': 'string', 'required': False, 'description': 'Carrier Contact Role', 'enum': ['ACCOUNT_MANAGER', 'OPERATIONS_REP', 'CARRIER_REP', 'CUSTOMER_TEAM']},
+        
+        # Brokerage Information
         'brokerage.contacts.0.name': {'type': 'string', 'required': False, 'description': 'Broker Contact Name'},
         'brokerage.contacts.0.email': {'type': 'string', 'required': False, 'description': 'Broker Email'},
         'brokerage.contacts.0.phone': {'type': 'string', 'required': False, 'description': 'Broker Phone'},
+        'brokerage.contacts.0.role': {'type': 'string', 'required': False, 'description': 'Broker Contact Role', 'enum': ['ACCOUNT_MANAGER', 'OPERATIONS_REP', 'CARRIER_REP', 'CUSTOMER_TEAM']},
     }
 
 def load_custom_css():
