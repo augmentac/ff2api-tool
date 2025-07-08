@@ -1460,3 +1460,321 @@ class DataProcessor:
         
         # String fields
         return str(value).strip() 
+
+    # =============================================================================
+    # Learning System Integration Methods
+    # =============================================================================
+    
+    def suggest_mapping_with_learning(self, df_columns: List[str], api_schema: Dict[str, Any], 
+                                    df: Optional[pd.DataFrame] = None, 
+                                    db_manager=None, brokerage_name: str = None) -> Dict[str, str]:
+        """Enhanced mapping with learning system integration"""
+        # Get base suggestions from existing system
+        base_suggestions = self.suggest_mapping(df_columns, api_schema, df)
+        
+        # If learning system is available, enhance with learned patterns
+        if db_manager and brokerage_name:
+            enhanced_suggestions = self._enhance_with_learned_patterns(
+                base_suggestions, df_columns, df, db_manager, brokerage_name
+            )
+            return enhanced_suggestions
+        
+        return base_suggestions
+    
+    def _enhance_with_learned_patterns(self, base_suggestions: Dict[str, str], 
+                                     df_columns: List[str], df: Optional[pd.DataFrame],
+                                     db_manager, brokerage_name: str) -> Dict[str, str]:
+        """Enhance base suggestions with learned patterns"""
+        enhanced_suggestions = base_suggestions.copy()
+        learning_confidence = {}
+        
+        for column in df_columns:
+            # Get sample data for better matching
+            sample_data = None
+            if df is not None and column in df.columns:
+                sample_data = df[column].dropna().head(10).tolist()
+            
+            # Get learning suggestions for this column
+            learning_suggestions = db_manager.get_learning_suggestions(
+                brokerage_name, column, sample_data
+            )
+            
+            if learning_suggestions:
+                # Find the best learning suggestion
+                best_learning = learning_suggestions[0]
+                
+                # Get current base suggestion confidence
+                base_confidence = self._calculate_base_confidence(column, base_suggestions.get(column))
+                
+                # Compare learning confidence with base confidence
+                if best_learning['confidence'] > base_confidence + 0.1:  # 10% threshold
+                    enhanced_suggestions[column] = best_learning['api_field']
+                    learning_confidence[column] = best_learning['confidence']
+                    
+                    self.logger.info(f"Learning override for {column}: {best_learning['api_field']} "
+                                   f"(confidence: {best_learning['confidence']:.2f}, "
+                                   f"success_rate: {best_learning['success_rate']:.2f})")
+        
+        return enhanced_suggestions
+    
+         def _calculate_base_confidence(self, column_name: str, suggested_field: Optional[str]) -> float:
+        """Calculate confidence score for base suggestion"""
+        if not suggested_field:
+            return 0.0
+        
+        # Use existing scoring logic from suggest_mapping
+        column_lower = column_name.lower()
+        field_lower = suggested_field.lower()
+        
+        # Exact match
+        if column_lower == field_lower:
+            return 1.0
+        
+        # Partial match
+        if column_lower in field_lower or field_lower in column_lower:
+            return 0.8
+        
+        # Default moderate confidence
+        return 0.6
+    
+    def track_mapping_interaction(self, session_id: str, brokerage_name: str, 
+                                configuration_name: str, df_columns: List[str],
+                                suggested_mappings: Dict[str, str], 
+                                final_mappings: Dict[str, str],
+                                df: Optional[pd.DataFrame] = None, 
+                                db_manager=None) -> Dict[str, Any]:
+        """Track mapping interaction for learning system"""
+        if not db_manager:
+            return {}
+        
+        # Calculate interaction statistics
+        suggestions_accepted = 0
+        manual_corrections = 0
+        decisions = []
+        
+        for column in df_columns:
+            suggested_field = suggested_mappings.get(column)
+            actual_field = final_mappings.get(column)
+            
+            if suggested_field and actual_field:
+                decision_type = 'accepted' if suggested_field == actual_field else 'corrected'
+                if decision_type == 'accepted':
+                    suggestions_accepted += 1
+                else:
+                    manual_corrections += 1
+                
+                # Get sample data for this column
+                sample_data = []
+                column_data_type = 'string'
+                if df is not None and column in df.columns:
+                    sample_data = df[column].dropna().head(10).tolist()
+                    column_data_type = self._infer_column_type(df[column])
+                
+                # Calculate confidence for this decision
+                confidence = self._calculate_base_confidence(column, suggested_field)
+                
+                decisions.append({
+                    'column_name': column,
+                    'column_sample_data': sample_data,
+                    'column_data_type': column_data_type,
+                    'suggested_field': suggested_field,
+                    'suggested_confidence': confidence,
+                    'actual_field': actual_field,
+                    'decision_type': decision_type
+                })
+        
+        # Prepare interaction data
+        interaction_data = {
+            'session_id': session_id,
+            'brokerage_name': brokerage_name,
+            'configuration_name': configuration_name,
+            'file_headers': df_columns,
+            'suggested_mappings': suggested_mappings,
+            'final_mappings': final_mappings,
+            'suggestions_accepted': suggestions_accepted,
+            'manual_corrections': manual_corrections,
+            'total_fields': len(df_columns),
+            'decisions': decisions
+        }
+        
+        try:
+            # Save interaction data
+            interaction_id = db_manager.save_mapping_interaction(interaction_data)
+            
+            # Update brokerage patterns
+            db_manager.update_brokerage_patterns(brokerage_name, decisions)
+            
+            return {
+                'interaction_id': interaction_id,
+                'suggestions_accepted': suggestions_accepted,
+                'manual_corrections': manual_corrections,
+                'total_fields': len(df_columns)
+            }
+            
+        except Exception as e:
+            self.logger.error(f"Error tracking mapping interaction: {e}")
+            return {}
+    
+    def update_learning_with_processing_results(self, session_id: str, 
+                                              processing_success_rate: float,
+                                              db_manager=None) -> None:
+        """Update learning system with processing results"""
+        if not db_manager:
+            return
+        
+        try:
+            # Update the most recent interaction with processing results
+            conn = db_manager.get_connection()
+            cursor = conn.cursor()
+            
+            cursor.execute('''
+                UPDATE mapping_interactions 
+                SET processing_success_rate = ?
+                WHERE session_id = ?
+                ORDER BY timestamp DESC
+                LIMIT 1
+            ''', (processing_success_rate, session_id))
+            
+            conn.commit()
+            conn.close()
+            
+        except Exception as e:
+            self.logger.error(f"Error updating learning with processing results: {e}")
+    
+    def get_learning_insights(self, brokerage_name: str, db_manager=None) -> Dict[str, Any]:
+        """Get insights from learning system for mapping interface"""
+        if not db_manager:
+            return {}
+        
+        try:
+            # Get mapping analytics
+            analytics = db_manager.get_mapping_analytics(brokerage_name)
+            
+            # Get top patterns
+            patterns = db_manager.get_brokerage_patterns(brokerage_name)
+            
+            # Process insights
+            insights = {
+                'total_sessions': analytics['interaction_stats']['total_interactions'],
+                'avg_acceptance_rate': analytics['interaction_stats']['avg_suggestions_accepted'],
+                'avg_success_rate': analytics['interaction_stats']['avg_processing_success'],
+                'top_patterns': [
+                    {
+                        'column_pattern': pattern['column_pattern'],
+                        'api_field': pattern['api_field'],
+                        'confidence': pattern['average_confidence'],
+                        'usage_count': pattern['total_count']
+                    }
+                    for pattern in patterns[:10]  # Top 10 patterns
+                ],
+                'learning_progress': analytics['learning_progress']
+            }
+            
+            return insights
+            
+        except Exception as e:
+            self.logger.error(f"Error getting learning insights: {e}")
+            return {}
+    
+    def _infer_column_type(self, column: pd.Series) -> str:
+        """Infer the data type of a column"""
+        try:
+                         # Check if numeric
+             if pd.api.types.is_numeric_dtype(column):
+                 return 'numeric'
+             
+             # Check if datetime
+             if pd.api.types.is_datetime64_any_dtype(column):
+                 return 'datetime'
+             
+             # Check if boolean
+             if pd.api.types.is_bool_dtype(column):
+                 return 'boolean'
+             
+             # Try to infer from sample values
+             sample_values = column.dropna().head(100)
+             
+             # Check for date patterns
+             date_patterns = [
+                 r'\d{4}-\d{2}-\d{2}',  # YYYY-MM-DD
+                 r'\d{2}/\d{2}/\d{4}',  # MM/DD/YYYY
+                 r'\d{1,2}/\d{1,2}/\d{2,4}',  # M/D/YY or MM/DD/YYYY
+             ]
+             
+             for pattern in date_patterns:
+                 matches = sample_values.astype(str).str.match(pattern)
+                 if len(matches) > 0 and matches.any():
+                     return 'date'
+             
+             # Check for email patterns
+             email_matches = sample_values.astype(str).str.contains('@')
+             if len(email_matches) > 0 and email_matches.any():
+                 return 'email'
+             
+             # Check for phone patterns
+             phone_pattern = r'[\+]?[1-9]?[\d\s\-\(\)]{7,15}'
+             phone_matches = sample_values.astype(str).str.match(phone_pattern)
+             if len(phone_matches) > 0 and phone_matches.any():
+                 return 'phone'
+            
+            # Default to string
+            return 'string'
+            
+        except Exception:
+            return 'string'
+    
+    def suggest_field_improvements(self, brokerage_name: str, db_manager=None) -> List[Dict[str, Any]]:
+        """Suggest improvements based on learning patterns"""
+        if not db_manager:
+            return []
+        
+        suggestions = []
+        
+        try:
+            # Get patterns with low success rates
+            patterns = db_manager.get_brokerage_patterns(brokerage_name)
+            
+            for pattern in patterns:
+                if pattern['total_count'] >= 5:  # Minimum sample size
+                    success_rate = pattern['success_count'] / pattern['total_count']
+                    
+                    # Suggest improvements for low success patterns
+                    if success_rate < 0.6:  # Less than 60% success
+                        suggestions.append({
+                            'type': 'low_success_pattern',
+                            'column_pattern': pattern['column_pattern'],
+                            'api_field': pattern['api_field'],
+                            'success_rate': success_rate,
+                            'sample_count': pattern['total_count'],
+                            'suggestion': f"Consider reviewing mapping for '{pattern['column_pattern']}' "
+                                        f"to '{pattern['api_field']}' (only {success_rate:.1%} success rate)"
+                        })
+            
+            # Get fields that are frequently manually corrected
+            analytics = db_manager.get_mapping_analytics(brokerage_name)
+            
+            if analytics['interaction_stats']['avg_manual_corrections'] > 3:
+                suggestions.append({
+                    'type': 'high_manual_corrections',
+                    'avg_corrections': analytics['interaction_stats']['avg_manual_corrections'],
+                    'suggestion': "Consider reviewing common field mappings to reduce manual corrections"
+                })
+            
+            return suggestions
+            
+        except Exception as e:
+            self.logger.error(f"Error getting field improvement suggestions: {e}")
+            return []
+    
+    def cleanup_learning_data(self, db_manager=None, days_to_keep: int = 90) -> Dict[str, Any]:
+        """Clean up old learning data"""
+        if not db_manager:
+            return {'success': False, 'error': 'No database manager provided'}
+        
+        try:
+            db_manager.cleanup_old_learning_data(days_to_keep)
+            return {'success': True, 'message': f'Cleaned up learning data older than {days_to_keep} days'}
+            
+        except Exception as e:
+            self.logger.error(f"Error cleaning up learning data: {e}")
+            return {'success': False, 'error': str(e)} 

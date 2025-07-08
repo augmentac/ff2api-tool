@@ -1615,3 +1615,417 @@ def create_enhanced_field_mapping_row(field: str, field_info: dict, df, updated_
             # Remove mapping if "None" is selected
             if field in updated_mappings:
                 del updated_mappings[field] 
+
+# =============================================================================
+# Learning-Enhanced Mapping Interface
+# =============================================================================
+
+def create_learning_enhanced_mapping_interface(df, existing_mappings, data_processor, 
+                                             db_manager=None, brokerage_name=None, 
+                                             configuration_name=None):
+    """Create an enhanced mapping interface with learning system integration"""
+    st.subheader("🧠 Smart Field Mapping with Learning")
+    
+    # Get the API schema
+    api_schema = get_full_api_schema()
+    
+    # Initialize or get existing mappings
+    if existing_mappings:
+        field_mappings = existing_mappings.copy()
+    else:
+        field_mappings = {}
+    
+    # Generate smart suggestions with learning enhancement
+    suggested_mappings = {}
+    if not existing_mappings:
+        with st.spinner("🧠 Generating smart mapping suggestions..."):
+            try:
+                if db_manager and brokerage_name:
+                    # Use learning-enhanced suggestions
+                    suggested_mappings = data_processor.suggest_mapping_with_learning(
+                        list(df.columns), api_schema, df, db_manager, brokerage_name
+                    )
+                    
+                    # Show learning insights
+                    insights = data_processor.get_learning_insights(brokerage_name, db_manager)
+                    if insights.get('total_sessions', 0) > 0:
+                        st.info(f"📊 Learning from {insights['total_sessions']} previous sessions "
+                               f"(avg {insights['avg_acceptance_rate']:.1f} suggestions accepted)")
+                else:
+                    # Fallback to basic suggestions
+                    suggested_mappings = data_processor.suggest_mapping(list(df.columns), api_schema, df)
+                
+                if suggested_mappings:
+                    st.success(f"✨ Generated {len(suggested_mappings)} smart mapping suggestions!")
+                    field_mappings.update(suggested_mappings)
+                else:
+                    st.info("💡 No automatic suggestions found. Please map fields manually below.")
+            except Exception as e:
+                st.warning(f"⚠️ Could not generate smart mappings: {str(e)}")
+    
+    # Store original suggested mappings for learning tracking
+    if 'suggested_mappings' not in st.session_state:
+        st.session_state.suggested_mappings = suggested_mappings.copy()
+    
+    # Show learning recommendations if available
+    if db_manager and brokerage_name:
+        suggestions = data_processor.suggest_field_improvements(brokerage_name, db_manager)
+        if suggestions:
+            with st.expander("🎯 Learning Recommendations", expanded=False):
+                for suggestion in suggestions[:3]:  # Show top 3
+                    st.warning(f"💡 {suggestion['suggestion']}")
+    
+    # Separate required and optional fields
+    required_fields = {k: v for k, v in api_schema.items() if v.get('required', False)}
+    optional_fields = {k: v for k, v in api_schema.items() if not v.get('required', False)}
+    
+    # Progress tracking
+    total_required = len(required_fields)
+    mapped_required = len([f for f in required_fields.keys() if f in field_mappings])
+    
+    if total_required > 0:
+        progress = mapped_required / total_required
+        st.markdown(f"""
+            <div style="background: white; padding: 1rem; border-radius: 0.5rem; margin-bottom: 1rem; border: 1px solid #e2e8f0;">
+                <div style="display: flex; justify-content: space-between; margin-bottom: 0.5rem;">
+                    <strong>Required Fields Progress</strong>
+                    <span style="color: #2563eb;">{mapped_required}/{total_required} completed</span>
+                </div>
+                <div style="background: #e2e8f0; height: 8px; border-radius: 4px;">
+                    <div style="background: #2563eb; height: 100%; width: {progress*100}%; border-radius: 4px; transition: width 0.3s;"></div>
+                </div>
+            </div>
+        """, unsafe_allow_html=True)
+    
+    # Initialize mapping tab state
+    if 'mapping_tab_index' not in st.session_state:
+        st.session_state.mapping_tab_index = 0
+    
+    # Create custom tab interface
+    tab_names = ["⭐ Required Fields", "📄 Optional Fields"]
+    
+    # Custom tab buttons
+    tab_cols = st.columns(len(tab_names))
+    for i, tab_name in enumerate(tab_names):
+        with tab_cols[i]:
+            if st.button(tab_name, key=f"tab_{i}", 
+                        type="primary" if st.session_state.mapping_tab_index == i else "secondary",
+                        use_container_width=True):
+                st.session_state.mapping_tab_index = i
+                st.rerun()
+    
+    # Tab content
+    updated_mappings = field_mappings.copy()
+    
+    if st.session_state.mapping_tab_index == 0:
+        # Required Fields Tab
+        st.markdown("### ⭐ Required Fields (Must be mapped)")
+        if not required_fields:
+            st.info("No required fields found in the API schema.")
+        else:
+            for field, field_info in required_fields.items():
+                create_learning_enhanced_field_mapping_row(
+                    field, field_info, df, updated_mappings, 
+                    required=True, db_manager=db_manager, 
+                    brokerage_name=brokerage_name
+                )
+    
+    elif st.session_state.mapping_tab_index == 1:
+        # Optional Fields Tab
+        st.markdown("### 📄 Optional Fields (Enhance your data)")
+        
+        # Group optional fields by category
+        categories = {
+            "📍 Location Details": [f for f in optional_fields.keys() if 'address' in f or 'route' in f],
+            "📦 Load Information": [f for f in optional_fields.keys() if 'items' in f or 'equipment' in f or 'weight' in f],
+            "💰 Pricing & Bids": [f for f in optional_fields.keys() if 'bid' in f.lower() or 'cost' in f.lower() or 'rate' in f.lower()],
+            "👥 Contacts & Carriers": [f for f in optional_fields.keys() if 'contact' in f or 'carrier' in f or 'driver' in f],
+            "📋 Other Fields": [f for f in optional_fields.keys() if f not in [item for sublist in [
+                [f for f in optional_fields.keys() if 'address' in f or 'route' in f],
+                [f for f in optional_fields.keys() if 'items' in f or 'equipment' in f or 'weight' in f],
+                [f for f in optional_fields.keys() if 'bid' in f.lower() or 'cost' in f.lower() or 'rate' in f.lower()],
+                [f for f in optional_fields.keys() if 'contact' in f or 'carrier' in f or 'driver' in f]
+            ] for item in sublist]]
+        }
+        
+        for category_name, category_fields in categories.items():
+            if category_fields:
+                with st.expander(f"{category_name} ({len(category_fields)} fields)", expanded=False):
+                    for field in category_fields:
+                        if field in optional_fields:
+                            create_learning_enhanced_field_mapping_row(
+                                field, optional_fields[field], df, updated_mappings,
+                                required=False, db_manager=db_manager,
+                                brokerage_name=brokerage_name
+                            )
+    
+    # Action buttons
+    st.markdown("---")
+    st.markdown("### Mapping Actions")
+    
+    col1, col2, col3, col4 = st.columns(4)
+    
+    with col1:
+        if st.button("✅ Apply All Mappings", type="primary", use_container_width=True, 
+                    key="learning_apply_mappings"):
+            
+            # Track mapping interaction for learning
+            if db_manager and brokerage_name:
+                session_id = st.session_state.get('session_id', 'unknown')
+                try:
+                    tracking_result = data_processor.track_mapping_interaction(
+                        session_id, brokerage_name, configuration_name or '',
+                        list(df.columns), st.session_state.suggested_mappings,
+                        updated_mappings, df, db_manager
+                    )
+                    
+                    if tracking_result:
+                        st.session_state.learning_interaction_id = tracking_result.get('interaction_id')
+                        logger.info(f"Tracked mapping interaction: {tracking_result}")
+                        
+                except Exception as e:
+                    logger.error(f"Failed to track mapping interaction: {e}")
+            
+            st.session_state.field_mappings = updated_mappings
+            mapped_required_after = len([f for f in required_fields.keys() if f in updated_mappings])
+            st.success(f"Applied {len(updated_mappings)} mappings! ({mapped_required_after}/{total_required} required fields mapped)")
+            
+            if mapped_required_after == total_required:
+                st.session_state.current_step = max(st.session_state.current_step, 5)
+    
+    with col2:
+        if st.button("🧠 Refresh Suggestions", use_container_width=True, 
+                    key="learning_refresh_suggestions"):
+            with st.spinner("🔄 Generating fresh mapping suggestions..."):
+                try:
+                    if db_manager and brokerage_name:
+                        fresh_mappings = data_processor.suggest_mapping_with_learning(
+                            list(df.columns), api_schema, df, db_manager, brokerage_name
+                        )
+                    else:
+                        fresh_mappings = data_processor.suggest_mapping(list(df.columns), api_schema, df)
+                    
+                    st.session_state.suggested_mappings = fresh_mappings.copy()
+                    st.session_state.field_mappings = fresh_mappings
+                    st.success("Generated fresh automatic mappings!")
+                    st.rerun()
+                except Exception as e:
+                    st.error(f"Failed to generate mappings: {str(e)}")
+    
+    with col3:
+        if st.button("🗑️ Clear All", use_container_width=True, 
+                    key="learning_clear_mappings"):
+            st.session_state.field_mappings = {}
+            st.session_state.suggested_mappings = {}
+            st.info("Cleared all mappings")
+            st.rerun()
+    
+    with col4:
+        if st.button("💾 Save & Continue", type="secondary", use_container_width=True, 
+                    key="learning_save_continue"):
+            
+            # Track mapping interaction for learning
+            if db_manager and brokerage_name:
+                session_id = st.session_state.get('session_id', 'unknown')
+                try:
+                    tracking_result = data_processor.track_mapping_interaction(
+                        session_id, brokerage_name, configuration_name or '',
+                        list(df.columns), st.session_state.suggested_mappings,
+                        updated_mappings, df, db_manager
+                    )
+                    
+                    if tracking_result:
+                        st.session_state.learning_interaction_id = tracking_result.get('interaction_id')
+                        
+                except Exception as e:
+                    logger.error(f"Failed to track mapping interaction: {e}")
+            
+            st.session_state.field_mappings = updated_mappings
+            mapped_required_after = len([f for f in required_fields.keys() if f in updated_mappings])
+            
+            if mapped_required_after == total_required:
+                st.session_state.current_step = max(st.session_state.current_step, 5)
+                st.success("✅ Mappings saved! Moving to validation step...")
+                st.rerun()
+            else:
+                st.warning(f"⚠️ Please map all {total_required} required fields before continuing. "
+                          f"Currently mapped: {mapped_required_after}")
+    
+    return updated_mappings
+
+def create_learning_enhanced_field_mapping_row(field: str, field_info: dict, df, 
+                                             updated_mappings: dict, required: bool = False,
+                                             db_manager=None, brokerage_name=None):
+    """Create a field mapping row with learning indicators"""
+    col1, col2, col3 = st.columns([3, 2, 1])
+    
+    with col1:
+        # Get learning confidence if available
+        learning_confidence = None
+        learning_source = None
+        
+        if db_manager and brokerage_name:
+            try:
+                suggestions = db_manager.get_learning_suggestions(brokerage_name, field)
+                if suggestions:
+                    learning_confidence = suggestions[0]['confidence']
+                    learning_source = suggestions[0]['source']
+            except Exception:
+                pass
+        
+        # Field description with learning indicators
+        required_indicator = "⭐" if required else "📄"
+        color = "#dc2626" if required else "#64748b"
+        
+        learning_badge = ""
+        if learning_confidence and learning_confidence > 0.7:
+            learning_badge = f'<div style="display: inline-block; background: #10b981; color: white; padding: 0.125rem 0.5rem; border-radius: 0.25rem; font-size: 0.75rem; margin-left: 0.5rem;">🧠 {learning_confidence:.1%}</div>'
+        elif learning_confidence and learning_confidence > 0.5:
+            learning_badge = f'<div style="display: inline-block; background: #f59e0b; color: white; padding: 0.125rem 0.5rem; border-radius: 0.25rem; font-size: 0.75rem; margin-left: 0.5rem;">🧠 {learning_confidence:.1%}</div>'
+        
+        st.markdown(f"""
+            <div style="padding: 0.5rem; background: {'rgba(239, 68, 68, 0.05)' if required else 'rgba(248, 250, 252, 1)'}; 
+                        border-radius: 0.5rem; border-left: 3px solid {color};">
+                <div style="font-weight: 600; color: {color};">
+                    {required_indicator} {field_info.get('description', field)} {learning_badge}
+                </div>
+                <div style="font-size: 0.8rem; color: #64748b; margin-top: 0.25rem;">
+                    <code>{field}</code>
+                </div>
+                {f'<div style="font-size: 0.75rem; color: #dc2626; margin-top: 0.25rem;"><strong>Required Field</strong></div>' if required else ''}
+                {f'<div style="font-size: 0.75rem; color: #64748b; margin-top: 0.25rem;">Options: {", ".join(field_info["enum"])}</div>' if field_info.get('enum') else ''}
+            </div>
+        """, unsafe_allow_html=True)
+    
+    with col2:
+        # Column selection with learning highlights
+        current_mapping = updated_mappings.get(field, None)
+        column_options = ["None"] + list(df.columns)
+        
+        if current_mapping and current_mapping.startswith('MANUAL_VALUE:'):
+            default_index = 0
+        elif current_mapping and current_mapping in column_options:
+            default_index = column_options.index(current_mapping)
+        else:
+            default_index = 0
+        
+        selected_column = st.selectbox(
+            "Map to CSV column",
+            options=column_options,
+            index=default_index,
+            key=f"learning_mapping_{field}",
+            label_visibility="collapsed"
+        )
+        
+        if selected_column != "None":
+            updated_mappings[field] = selected_column
+            # Show sample data preview
+            if selected_column in df.columns:
+                sample_data = df[selected_column].dropna().head(3).tolist()
+                if sample_data:
+                    st.caption(f"Sample: {', '.join(str(x)[:20] for x in sample_data)}")
+        elif field in updated_mappings and not updated_mappings[field].startswith('MANUAL_VALUE:'):
+            if field in updated_mappings:
+                del updated_mappings[field]
+    
+    with col3:
+        # Manual value option
+        if st.button("✏️", key=f"learning_manual_{field}", help="Enter manual value"):
+            manual_value = st.text_input(
+                f"Manual value for {field_info['description']}", 
+                key=f"learning_manual_input_{field}",
+                placeholder="Enter value..."
+            )
+            if manual_value:
+                updated_mappings[field] = f"MANUAL_VALUE:{manual_value}"
+                st.success(f"✅ Set manual value: {manual_value}")
+
+def create_learning_analytics_dashboard(db_manager, brokerage_name):
+    """Create a dashboard showing learning analytics"""
+    st.subheader("📊 Learning Analytics")
+    
+    try:
+        analytics = db_manager.get_mapping_analytics(brokerage_name)
+        
+        if analytics['interaction_stats']['total_interactions'] == 0:
+            st.info("No learning data available yet. Start mapping files to build learning patterns!")
+            return
+        
+        # Key metrics
+        col1, col2, col3, col4 = st.columns(4)
+        
+        with col1:
+            st.metric(
+                "Total Sessions", 
+                analytics['interaction_stats']['total_interactions']
+            )
+        
+        with col2:
+            st.metric(
+                "Avg Suggestions Accepted", 
+                f"{analytics['interaction_stats']['avg_suggestions_accepted']:.1f}"
+            )
+        
+        with col3:
+            st.metric(
+                "Avg Processing Success", 
+                f"{analytics['interaction_stats']['avg_processing_success']:.1%}"
+            )
+        
+        with col4:
+            st.metric(
+                "Avg Manual Corrections", 
+                f"{analytics['interaction_stats']['avg_manual_corrections']:.1f}"
+            )
+        
+        # Top patterns
+        if analytics['top_patterns']:
+            st.markdown("### 🎯 Top Learning Patterns")
+            for pattern in analytics['top_patterns'][:5]:
+                st.markdown(f"**{pattern['column_pattern']}** → `{pattern['api_field']}` "
+                           f"(confidence: {pattern['confidence']:.1%}, "
+                           f"used: {pattern['usage_count']} times)")
+        
+        # Learning progress over time
+        if analytics['learning_progress']:
+            st.markdown("### 📈 Learning Progress Over Time")
+            progress_df = pd.DataFrame(analytics['learning_progress'])
+            if not progress_df.empty:
+                st.line_chart(progress_df.set_index('date')['acceptance_rate'])
+        
+    except Exception as e:
+        st.error(f"Error loading learning analytics: {e}")
+
+def update_learning_with_processing_results(session_id: str, success_rate: float, 
+                                          data_processor, db_manager):
+    """Update learning system with processing results"""
+    if db_manager and session_id:
+        try:
+            data_processor.update_learning_with_processing_results(
+                session_id, success_rate, db_manager
+            )
+            logger.info(f"Updated learning system with success rate: {success_rate:.1%}")
+        except Exception as e:
+            logger.error(f"Failed to update learning system: {e}")
+
+def cleanup_learning_data_interface(db_manager, data_processor):
+    """Interface for cleaning up old learning data"""
+    st.subheader("🧹 Learning Data Cleanup")
+    
+    days_to_keep = st.slider(
+        "Days of learning data to keep",
+        min_value=30,
+        max_value=365,
+        value=90,
+        step=30,
+        help="Learning data older than this will be removed"
+    )
+    
+    if st.button("Clean Up Learning Data", type="secondary"):
+        with st.spinner("Cleaning up old learning data..."):
+            result = data_processor.cleanup_learning_data(db_manager, days_to_keep)
+            
+            if result['success']:
+                st.success(result['message'])
+            else:
+                st.error(f"Cleanup failed: {result['error']}")

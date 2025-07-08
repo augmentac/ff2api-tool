@@ -33,6 +33,9 @@ from src.frontend.ui_components import (
     create_configuration_management_interface,
     create_header_validation_interface,
     create_enhanced_mapping_with_validation,
+    create_learning_enhanced_mapping_interface,
+    create_learning_analytics_dashboard,
+    update_learning_with_processing_results,
     get_full_api_schema
 )
 
@@ -58,6 +61,18 @@ except (OSError, PermissionError):
     )
 
 logger = logging.getLogger(__name__)
+
+# Session management functions
+def generate_session_id():
+    """Generate a unique session ID for learning tracking"""
+    import uuid
+    return str(uuid.uuid4())
+
+def ensure_session_id():
+    """Ensure a session ID exists for learning tracking"""
+    if 'session_id' not in st.session_state:
+        st.session_state.session_id = generate_session_id()
+    return st.session_state.session_id
 
 # Authentication functions
 def check_password():
@@ -238,6 +253,9 @@ def main():
     
     # Initialize components
     db_manager, data_processor = init_components()
+    
+    # Ensure session ID for learning tracking
+    ensure_session_id()
     
     # Check for critical backup needs at app startup
     check_critical_backup_needs(db_manager)
@@ -490,6 +508,14 @@ def show_contextual_information(db_manager):
     
     # Database management section
     render_database_management_section()
+    
+    # Learning analytics section
+    if st.session_state.get('brokerage_name'):
+        st.markdown("---")
+        st.markdown("### 🧠 Learning Analytics")
+        
+        if st.button("📊 View Analytics", use_container_width=True, key="sidebar_learning_analytics"):
+            st.session_state.show_learning_analytics = True
 
 def _render_brokerage_selection(db_manager):
     """Render compact brokerage selection"""
@@ -1064,6 +1090,17 @@ def main_workflow(db_manager, data_processor):
     
     # Database status monitoring
     show_database_status()
+    
+    # Learning analytics dashboard
+    if st.session_state.get('show_learning_analytics'):
+        st.markdown("---")
+        brokerage_name = st.session_state.get('brokerage_name')
+        if brokerage_name:
+            create_learning_analytics_dashboard(db_manager, brokerage_name)
+        
+        if st.button("❌ Close Analytics", key="close_learning_analytics"):
+            st.session_state.show_learning_analytics = False
+            st.rerun()
 
 def _render_enhanced_progress(current_step):
     """Enhanced progress bar with visual connections and animations"""
@@ -1261,9 +1298,13 @@ def _render_smart_mapping_section(db_manager, data_processor):
             if has_real_mappings:
                 existing_config = config
         
-        # Enhanced mapping interface
-        field_mappings = create_enhanced_mapping_with_validation(
-            df, existing_config, data_processor, header_comparison
+        # Learning-enhanced mapping interface
+        brokerage_name = st.session_state.get('brokerage_name')
+        configuration_name = st.session_state.get('selected_configuration', {}).get('name')
+        
+        field_mappings = create_learning_enhanced_mapping_interface(
+            df, existing_config.get('field_mappings', {}) if existing_config else {},
+            data_processor, db_manager, brokerage_name, configuration_name
         )
         
         st.session_state.field_mappings = field_mappings
@@ -1352,13 +1393,18 @@ def _render_processing_section(db_manager, data_processor):
         # Process button
         if st.button("🚀 Process Data", type="primary", key="process_btn", use_container_width=True):
             try:
-                import uuid
-                session_id = str(uuid.uuid4())[:8]
+                session_id = st.session_state.get('session_id', 'unknown')
                 
-                process_data_enhanced(
+                result = process_data_enhanced(
                     df, field_mappings, api_credentials, brokerage_name, 
                     data_processor, db_manager, session_id
                 )
+                
+                # Update learning system with processing results
+                if result and 'success_rate' in result:
+                    update_learning_with_processing_results(
+                        session_id, result['success_rate'], data_processor, db_manager
+                    )
                 
                 # Post-processing actions
                 col1, col2 = st.columns(2)
@@ -1612,6 +1658,15 @@ def process_data_enhanced(df, field_mappings, api_credentials, brokerage_name, d
         
         # Suggest backup after successful processing
         auto_backup_suggestion()
+        
+        # Return result for learning system
+        return {
+            'success_rate': success_rate / 100,  # Convert to 0-1 range
+            'successful_count': successful_count,
+            'failed_count': failed_count,
+            'total_count': len(df),
+            'processing_time': processing_time
+        }
         
         # Failed records details (only if there are failures)
         if failed_count > 0:

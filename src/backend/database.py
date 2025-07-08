@@ -115,6 +115,57 @@ class DatabaseManager:
             )
         ''')
         
+        # Learning system tables
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS mapping_interactions (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                session_id TEXT NOT NULL,
+                brokerage_name TEXT NOT NULL,
+                configuration_name TEXT,
+                timestamp DATETIME DEFAULT CURRENT_TIMESTAMP,
+                file_headers TEXT,
+                suggested_mappings TEXT,
+                final_mappings TEXT,
+                suggestions_accepted INTEGER DEFAULT 0,
+                manual_corrections INTEGER DEFAULT 0,
+                processing_success_rate REAL,
+                total_fields INTEGER DEFAULT 0,
+                user_satisfaction TEXT
+            )
+        ''')
+        
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS mapping_decisions (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                interaction_id INTEGER,
+                column_name TEXT NOT NULL,
+                column_sample_data TEXT,
+                column_data_type TEXT,
+                suggested_field TEXT,
+                suggested_confidence REAL,
+                actual_field TEXT,
+                decision_type TEXT,
+                decision_timestamp DATETIME DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (interaction_id) REFERENCES mapping_interactions (id)
+            )
+        ''')
+        
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS brokerage_patterns (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                brokerage_name TEXT NOT NULL,
+                column_pattern TEXT NOT NULL,
+                api_field TEXT NOT NULL,
+                success_count INTEGER DEFAULT 0,
+                total_count INTEGER DEFAULT 0,
+                average_confidence REAL DEFAULT 0.0,
+                data_type_pattern TEXT,
+                sample_values TEXT,
+                last_updated DATETIME DEFAULT CURRENT_TIMESTAMP,
+                UNIQUE(brokerage_name, column_pattern, api_field)
+            )
+        ''')
+        
         conn.commit()
         
         # Migrate existing databases to new schema
@@ -217,6 +268,10 @@ class DatabaseManager:
                     'error_log': json.loads(record[7]) if record[7] else None,
                     'upload_timestamp': record[10]  # Adjusted index for new schema
                 })
+            
+            # Export learning data
+            learning_data = self.export_learning_data()
+            export_data['learning_data'] = learning_data
             
             # Save export file
             export_path = os.path.join(self.backup_dir, f"{backup_name}.json")
@@ -350,12 +405,22 @@ class DatabaseManager:
                     ))
                     imported_history += 1
                 
+                # Import learning data if present
+                imported_learning = 0
+                if 'learning_data' in import_data:
+                    try:
+                        self.import_learning_data(import_data['learning_data'])
+                        imported_learning = 1
+                    except Exception as e:
+                        logging.error(f"Error importing learning data: {e}")
+                
                 conn.commit()
                 
                 return {
                     'success': True,
                     'imported_mappings': imported_mappings,
-                    'imported_history': imported_history
+                    'imported_history': imported_history,
+                    'imported_learning': imported_learning
                 }
                 
             except Exception as e:
@@ -511,6 +576,13 @@ class DatabaseManager:
         cursor.execute('SELECT COUNT(*) FROM backup_history')
         backup_count = cursor.fetchone()[0]
         
+        # Get learning table counts
+        cursor.execute('SELECT COUNT(*) FROM mapping_interactions')
+        interactions_count = cursor.fetchone()[0]
+        
+        cursor.execute('SELECT COUNT(*) FROM brokerage_patterns')
+        patterns_count = cursor.fetchone()[0]
+        
         # Get database size
         db_size = os.path.getsize(self.db_path)
         
@@ -520,6 +592,8 @@ class DatabaseManager:
             'customer_mappings': mapping_count,
             'upload_history': history_count,
             'backup_history': backup_count,
+            'mapping_interactions': interactions_count,
+            'brokerage_patterns': patterns_count,
             'database_size': db_size
         }
     
@@ -1215,3 +1289,445 @@ class DatabaseManager:
         except Exception as e:
             logging.error(f"Error during database migration: {e}")
             # Don't raise error - let the app continue with what it has 
+            
+    # =============================================================================
+    # Learning System Methods
+    # =============================================================================
+    
+    def save_mapping_interaction(self, interaction_data):
+        """Save mapping interaction data for learning system"""
+        conn = sqlite3.connect(self.db_path)
+        cursor = conn.cursor()
+        
+        try:
+            # Insert mapping interaction
+            cursor.execute('''
+                INSERT INTO mapping_interactions 
+                (session_id, brokerage_name, configuration_name, file_headers, 
+                 suggested_mappings, final_mappings, suggestions_accepted, 
+                 manual_corrections, total_fields, processing_success_rate)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ''', (
+                interaction_data.get('session_id'),
+                interaction_data.get('brokerage_name'),
+                interaction_data.get('configuration_name'),
+                json.dumps(interaction_data.get('file_headers', [])),
+                json.dumps(interaction_data.get('suggested_mappings', {})),
+                json.dumps(interaction_data.get('final_mappings', {})),
+                interaction_data.get('suggestions_accepted', 0),
+                interaction_data.get('manual_corrections', 0),
+                interaction_data.get('total_fields', 0),
+                interaction_data.get('processing_success_rate', 0.0)
+            ))
+            
+            interaction_id = cursor.lastrowid
+            
+            # Insert individual mapping decisions
+            decisions = interaction_data.get('decisions', [])
+            for decision in decisions:
+                cursor.execute('''
+                    INSERT INTO mapping_decisions 
+                    (interaction_id, column_name, column_sample_data, column_data_type,
+                     suggested_field, suggested_confidence, actual_field, decision_type)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                ''', (
+                    interaction_id,
+                    decision.get('column_name'),
+                    json.dumps(decision.get('column_sample_data', [])),
+                    decision.get('column_data_type'),
+                    decision.get('suggested_field'),
+                    decision.get('suggested_confidence', 0.0),
+                    decision.get('actual_field'),
+                    decision.get('decision_type')
+                ))
+            
+            conn.commit()
+            return interaction_id
+            
+        except Exception as e:
+            conn.rollback()
+            logging.error(f"Error saving mapping interaction: {e}")
+            raise
+        finally:
+            conn.close()
+    
+    def update_brokerage_patterns(self, brokerage_name, mapping_decisions):
+        """Update brokerage-specific mapping patterns based on user decisions"""
+        conn = sqlite3.connect(self.db_path)
+        cursor = conn.cursor()
+        
+        try:
+            for decision in mapping_decisions:
+                column_name = decision.get('column_name')
+                actual_field = decision.get('actual_field')
+                decision_type = decision.get('decision_type')
+                
+                if not column_name or not actual_field:
+                    continue
+                
+                # Normalize column name for pattern matching
+                column_pattern = self._normalize_column_name(column_name)
+                
+                # Get current pattern stats
+                cursor.execute('''
+                    SELECT success_count, total_count, average_confidence
+                    FROM brokerage_patterns
+                    WHERE brokerage_name = ? AND column_pattern = ? AND api_field = ?
+                ''', (brokerage_name, column_pattern, actual_field))
+                
+                result = cursor.fetchone()
+                
+                if result:
+                    # Update existing pattern
+                    success_count, total_count, avg_confidence = result
+                    
+                    # Update counts
+                    if decision_type == 'accepted':
+                        success_count += 1
+                    total_count += 1
+                    
+                    # Update average confidence
+                    new_confidence = decision.get('suggested_confidence', 0.0)
+                    if total_count > 0:
+                        avg_confidence = ((avg_confidence * (total_count - 1)) + new_confidence) / total_count
+                    
+                    cursor.execute('''
+                        UPDATE brokerage_patterns
+                        SET success_count = ?, total_count = ?, average_confidence = ?,
+                            last_updated = ?, sample_values = ?
+                        WHERE brokerage_name = ? AND column_pattern = ? AND api_field = ?
+                    ''', (
+                        success_count, total_count, avg_confidence, datetime.now(),
+                        json.dumps(decision.get('column_sample_data', [])),
+                        brokerage_name, column_pattern, actual_field
+                    ))
+                    
+                else:
+                    # Create new pattern
+                    success_count = 1 if decision_type == 'accepted' else 0
+                    confidence = decision.get('suggested_confidence', 0.0)
+                    
+                    cursor.execute('''
+                        INSERT INTO brokerage_patterns
+                        (brokerage_name, column_pattern, api_field, success_count, total_count,
+                         average_confidence, data_type_pattern, sample_values)
+                        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                    ''', (
+                        brokerage_name, column_pattern, actual_field, success_count, 1,
+                        confidence, decision.get('column_data_type'),
+                        json.dumps(decision.get('column_sample_data', []))
+                    ))
+            
+            conn.commit()
+            
+        except Exception as e:
+            conn.rollback()
+            logging.error(f"Error updating brokerage patterns: {e}")
+            raise
+        finally:
+            conn.close()
+    
+    def get_brokerage_patterns(self, brokerage_name, column_pattern=None):
+        """Get learning patterns for a specific brokerage"""
+        conn = sqlite3.connect(self.db_path)
+        cursor = conn.cursor()
+        
+        if column_pattern:
+            cursor.execute('''
+                SELECT column_pattern, api_field, success_count, total_count,
+                       average_confidence, data_type_pattern, sample_values
+                FROM brokerage_patterns
+                WHERE brokerage_name = ? AND column_pattern = ?
+                ORDER BY success_count DESC, average_confidence DESC
+            ''', (brokerage_name, column_pattern))
+        else:
+            cursor.execute('''
+                SELECT column_pattern, api_field, success_count, total_count,
+                       average_confidence, data_type_pattern, sample_values
+                FROM brokerage_patterns
+                WHERE brokerage_name = ?
+                ORDER BY success_count DESC, average_confidence DESC
+            ''', (brokerage_name,))
+        
+        results = cursor.fetchall()
+        conn.close()
+        
+        patterns = []
+        for row in results:
+            pattern = {
+                'column_pattern': row[0],
+                'api_field': row[1],
+                'success_count': row[2],
+                'total_count': row[3],
+                'average_confidence': row[4],
+                'data_type_pattern': row[5],
+                'sample_values': json.loads(row[6]) if row[6] else []
+            }
+            patterns.append(pattern)
+        
+        return patterns
+    
+    def get_learning_suggestions(self, brokerage_name, column_name, sample_data=None):
+        """Get mapping suggestions based on learned patterns"""
+        normalized_column = self._normalize_column_name(column_name)
+        patterns = self.get_brokerage_patterns(brokerage_name, normalized_column)
+        
+        suggestions = []
+        for pattern in patterns:
+            if pattern['total_count'] >= 2:  # Minimum threshold for confidence
+                # Calculate confidence based on success rate and historical confidence
+                success_rate = pattern['success_count'] / pattern['total_count']
+                historical_confidence = pattern['average_confidence']
+                
+                # Weighted confidence calculation
+                learned_confidence = (success_rate * 0.6) + (historical_confidence * 0.4)
+                
+                suggestions.append({
+                    'api_field': pattern['api_field'],
+                    'confidence': learned_confidence,
+                    'source': 'learning',
+                    'success_rate': success_rate,
+                    'sample_count': pattern['total_count']
+                })
+        
+        return sorted(suggestions, key=lambda x: x['confidence'], reverse=True)
+    
+    def get_mapping_analytics(self, brokerage_name, days_back=30):
+        """Get analytics on mapping patterns and learning progress"""
+        conn = sqlite3.connect(self.db_path)
+        cursor = conn.cursor()
+        
+        # Get recent interactions
+        cursor.execute('''
+            SELECT COUNT(*) as total_interactions,
+                   AVG(suggestions_accepted) as avg_suggestions_accepted,
+                   AVG(manual_corrections) as avg_manual_corrections,
+                   AVG(processing_success_rate) as avg_processing_success
+            FROM mapping_interactions
+            WHERE brokerage_name = ?
+            AND timestamp >= datetime('now', '-{} days')
+        '''.format(days_back), (brokerage_name,))
+        
+        interaction_stats = cursor.fetchone()
+        
+        # Get top patterns
+        cursor.execute('''
+            SELECT api_field, COUNT(*) as usage_count,
+                   AVG(average_confidence) as avg_confidence
+            FROM brokerage_patterns
+            WHERE brokerage_name = ?
+            GROUP BY api_field
+            ORDER BY usage_count DESC
+            LIMIT 10
+        ''', (brokerage_name,))
+        
+        top_patterns = cursor.fetchall()
+        
+        # Get learning progress (improvement over time)
+        cursor.execute('''
+            SELECT DATE(timestamp) as date,
+                   AVG(suggestions_accepted) as daily_acceptance_rate
+            FROM mapping_interactions
+            WHERE brokerage_name = ?
+            AND timestamp >= datetime('now', '-{} days')
+            GROUP BY DATE(timestamp)
+            ORDER BY date
+        '''.format(days_back), (brokerage_name,))
+        
+        learning_progress = cursor.fetchall()
+        
+        conn.close()
+        
+        return {
+            'interaction_stats': {
+                'total_interactions': interaction_stats[0] if interaction_stats[0] else 0,
+                'avg_suggestions_accepted': interaction_stats[1] if interaction_stats[1] else 0,
+                'avg_manual_corrections': interaction_stats[2] if interaction_stats[2] else 0,
+                'avg_processing_success': interaction_stats[3] if interaction_stats[3] else 0
+            },
+            'top_patterns': [
+                {
+                    'api_field': pattern[0],
+                    'usage_count': pattern[1],
+                    'avg_confidence': pattern[2]
+                }
+                for pattern in top_patterns
+            ],
+            'learning_progress': [
+                {
+                    'date': progress[0],
+                    'acceptance_rate': progress[1]
+                }
+                for progress in learning_progress
+            ]
+        }
+    
+    def _normalize_column_name(self, column_name):
+        """Normalize column name for pattern matching"""
+        import re
+        
+        # Convert to lowercase and replace common separators
+        normalized = column_name.lower()
+        normalized = re.sub(r'[_\-\s]+', '_', normalized)
+        normalized = re.sub(r'[^\w_]', '', normalized)
+        normalized = normalized.strip('_')
+        
+        return normalized
+    
+    def cleanup_old_learning_data(self, days_to_keep=90):
+        """Clean up old learning data to prevent database bloat"""
+        conn = sqlite3.connect(self.db_path)
+        cursor = conn.cursor()
+        
+        try:
+            # Clean up old interactions
+            cursor.execute('''
+                DELETE FROM mapping_interactions
+                WHERE timestamp < datetime('now', '-{} days')
+            '''.format(days_to_keep))
+            
+            # Clean up orphaned decisions
+            cursor.execute('''
+                DELETE FROM mapping_decisions
+                WHERE interaction_id NOT IN (
+                    SELECT id FROM mapping_interactions
+                )
+            ''')
+            
+            # Clean up patterns with very low success rates and old data
+            cursor.execute('''
+                DELETE FROM brokerage_patterns
+                WHERE (success_count = 0 AND total_count >= 5)
+                OR last_updated < datetime('now', '-{} days')
+            '''.format(days_to_keep * 2))
+            
+            conn.commit()
+            
+        except Exception as e:
+            conn.rollback()
+            logging.error(f"Error cleaning up learning data: {e}")
+            raise
+        finally:
+            conn.close()
+    
+    def export_learning_data(self):
+        """Export learning data for backup"""
+        conn = sqlite3.connect(self.db_path)
+        cursor = conn.cursor()
+        
+        learning_data = {
+            'mapping_interactions': [],
+            'mapping_decisions': [],
+            'brokerage_patterns': []
+        }
+        
+        # Export interactions
+        cursor.execute('SELECT * FROM mapping_interactions')
+        interactions = cursor.fetchall()
+        
+        interaction_columns = [desc[0] for desc in cursor.description]
+        for interaction in interactions:
+            learning_data['mapping_interactions'].append(
+                dict(zip(interaction_columns, interaction))
+            )
+        
+        # Export decisions
+        cursor.execute('SELECT * FROM mapping_decisions')
+        decisions = cursor.fetchall()
+        
+        decision_columns = [desc[0] for desc in cursor.description]
+        for decision in decisions:
+            learning_data['mapping_decisions'].append(
+                dict(zip(decision_columns, decision))
+            )
+        
+        # Export patterns
+        cursor.execute('SELECT * FROM brokerage_patterns')
+        patterns = cursor.fetchall()
+        
+        pattern_columns = [desc[0] for desc in cursor.description]
+        for pattern in patterns:
+            learning_data['brokerage_patterns'].append(
+                dict(zip(pattern_columns, pattern))
+            )
+        
+        conn.close()
+        return learning_data
+    
+    def import_learning_data(self, learning_data):
+        """Import learning data from backup"""
+        conn = sqlite3.connect(self.db_path)
+        cursor = conn.cursor()
+        
+        try:
+            # Import interactions
+            for interaction in learning_data.get('mapping_interactions', []):
+                cursor.execute('''
+                    INSERT OR REPLACE INTO mapping_interactions 
+                    (session_id, brokerage_name, configuration_name, timestamp,
+                     file_headers, suggested_mappings, final_mappings, 
+                     suggestions_accepted, manual_corrections, total_fields,
+                     processing_success_rate)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ''', (
+                    interaction.get('session_id'),
+                    interaction.get('brokerage_name'),
+                    interaction.get('configuration_name'),
+                    interaction.get('timestamp'),
+                    interaction.get('file_headers'),
+                    interaction.get('suggested_mappings'),
+                    interaction.get('final_mappings'),
+                    interaction.get('suggestions_accepted'),
+                    interaction.get('manual_corrections'),
+                    interaction.get('total_fields'),
+                    interaction.get('processing_success_rate')
+                ))
+            
+            # Import decisions
+            for decision in learning_data.get('mapping_decisions', []):
+                cursor.execute('''
+                    INSERT OR REPLACE INTO mapping_decisions
+                    (interaction_id, column_name, column_sample_data, column_data_type,
+                     suggested_field, suggested_confidence, actual_field, decision_type,
+                     decision_timestamp)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ''', (
+                    decision.get('interaction_id'),
+                    decision.get('column_name'),
+                    decision.get('column_sample_data'),
+                    decision.get('column_data_type'),
+                    decision.get('suggested_field'),
+                    decision.get('suggested_confidence'),
+                    decision.get('actual_field'),
+                    decision.get('decision_type'),
+                    decision.get('decision_timestamp')
+                ))
+            
+            # Import patterns
+            for pattern in learning_data.get('brokerage_patterns', []):
+                cursor.execute('''
+                    INSERT OR REPLACE INTO brokerage_patterns
+                    (brokerage_name, column_pattern, api_field, success_count,
+                     total_count, average_confidence, data_type_pattern,
+                     sample_values, last_updated)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ''', (
+                    pattern.get('brokerage_name'),
+                    pattern.get('column_pattern'),
+                    pattern.get('api_field'),
+                    pattern.get('success_count'),
+                    pattern.get('total_count'),
+                    pattern.get('average_confidence'),
+                    pattern.get('data_type_pattern'),
+                    pattern.get('sample_values'),
+                    pattern.get('last_updated')
+                ))
+            
+            conn.commit()
+            
+        except Exception as e:
+            conn.rollback()
+            logging.error(f"Error importing learning data: {e}")
+            raise
+        finally:
+            conn.close() 
