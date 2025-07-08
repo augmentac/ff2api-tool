@@ -13,6 +13,7 @@ from datetime import datetime
 from src.backend.database import DatabaseManager
 from src.backend.data_processor import DataProcessor
 import os
+import hashlib
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -1872,12 +1873,15 @@ def create_learning_enhanced_field_mapping_row(field: str, field_info: dict, df,
     """Create a field mapping row with learning indicators"""
     col1, col2, col3 = st.columns([3, 2, 1])
     
-    # Create stable keys that don't change on every render
+    # Create stable but truly unique keys
     key_suffix = "req" if required else "opt"
     tab_index = st.session_state.get('mapping_tab_index', 0)
-    brokerage_key = (brokerage_name or 'default').replace(' ', '_').replace('.', '_')
-    field_key = field.replace('.', '_').replace(' ', '_').replace('[', '_').replace(']', '_')
-    base_key = f"{key_suffix}_{tab_index}_{brokerage_key}_{field_key}"
+    brokerage_key = (brokerage_name or 'default').replace(' ', '_').replace('.', '_').replace('-', '_')
+    
+    # Create a more robust field key with hash to ensure uniqueness
+    field_hash = hashlib.md5(field.encode()).hexdigest()[:8]
+    field_clean = re.sub(r'[^a-zA-Z0-9_]', '_', field)[:20]  # Limit length and clean
+    base_key = f"{key_suffix}_{tab_index}_{brokerage_key}_{field_clean}_{field_hash}"
     
     with col1:
         # Get learning confidence if available
