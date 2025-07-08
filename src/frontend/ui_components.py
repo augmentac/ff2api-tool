@@ -13,6 +13,7 @@ from datetime import datetime
 from src.backend.database import DatabaseManager
 from src.backend.data_processor import DataProcessor
 import os
+import time
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -1635,6 +1636,10 @@ def create_learning_enhanced_mapping_interface(df, existing_mappings, data_proce
     """Create an enhanced mapping interface with learning system integration"""
     st.subheader("🧠 Smart Field Mapping with Learning")
     
+    # Clear rendering guard at the start of each render cycle
+    if 'field_rendering_guard' in st.session_state:
+        st.session_state.field_rendering_guard.clear()
+    
     # Get the API schema
     api_schema = get_full_api_schema()
     
@@ -1869,21 +1874,59 @@ def create_learning_enhanced_mapping_interface(df, existing_mappings, data_proce
 def create_learning_enhanced_field_mapping_row(field: str, field_info: dict, df, 
                                              updated_mappings: dict, required: bool = False,
                                              db_manager=None, brokerage_name=None):
-    """Create a field mapping row with learning indicators"""
+    """Create a field mapping row with learning indicators and robust key management"""
+    
+    # Initialize global key registries for comprehensive collision detection
+    if 'global_widget_keys' not in st.session_state:
+        st.session_state.global_widget_keys = set()
+    
+    if 'field_rendering_guard' not in st.session_state:
+        st.session_state.field_rendering_guard = set()
+    
+    # Create a unique field identifier to prevent duplicate rendering
+    field_render_id = f"{field}_{required}_{st.session_state.get('mapping_tab_index', 0)}"
+    
+    # Guard against duplicate rendering in the same cycle
+    if field_render_id in st.session_state.field_rendering_guard:
+        st.error(f"🔴 Duplicate field rendering detected: {field}")
+        return
+    
+    st.session_state.field_rendering_guard.add(field_render_id)
+    
+    # Create absolutely unique keys with comprehensive collision detection
+    def generate_unique_key(base_name: str, field_context: str) -> str:
+        """Generate a guaranteed unique key with collision detection"""
+        # Base key components
+        sanitized_field = re.sub(r'[^a-zA-Z0-9]', '_', field)
+        sanitized_brokerage = re.sub(r'[^a-zA-Z0-9]', '', brokerage_name or 'default')
+        tab_index = st.session_state.get('mapping_tab_index', 0)
+        
+        # Generate base key with multiple uniqueness factors
+        base_key = f"{base_name}_{sanitized_field}_{required}_{tab_index}_{sanitized_brokerage}_{field_context}"
+        
+        # Check for collisions and add suffix if needed
+        counter = 0
+        unique_key = base_key
+        while unique_key in st.session_state.global_widget_keys:
+            counter += 1
+            unique_key = f"{base_key}_{counter}"
+            
+            # Safety check to prevent infinite loops
+            if counter > 100:
+                st.error(f"🔴 Key generation failure for field: {field}")
+                unique_key = f"{base_key}_{int(time.time()*1000)}"
+                break
+        
+        # Register the key
+        st.session_state.global_widget_keys.add(unique_key)
+        return unique_key
+    
+    # Generate unique keys for all widgets
+    selectbox_key = generate_unique_key("learning_mapping", "selectbox")
+    manual_button_key = generate_unique_key("learning_manual", "button")
+    manual_input_key = generate_unique_key("learning_manual_input", "input")
+    
     col1, col2, col3 = st.columns([3, 2, 1])
-    
-    # Create absolutely unique keys using session-based field indexing
-    if 'field_key_registry' not in st.session_state:
-        st.session_state.field_key_registry = {}
-    
-    # Generate a unique index for this field if it doesn't exist
-    field_registry_key = f"{field}_{required}_{st.session_state.get('mapping_tab_index', 0)}"
-    if field_registry_key not in st.session_state.field_key_registry:
-        st.session_state.field_key_registry[field_registry_key] = len(st.session_state.field_key_registry)
-    
-    field_index = st.session_state.field_key_registry[field_registry_key]
-    brokerage_safe = re.sub(r'[^a-zA-Z0-9]', '', brokerage_name or 'default')
-    base_key = f"lm_{field_index}_{brokerage_safe}_{st.session_state.get('mapping_tab_index', 0)}"
     
     with col1:
         # Get learning confidence if available
@@ -1943,7 +1986,7 @@ def create_learning_enhanced_field_mapping_row(field: str, field_info: dict, df,
             "Map to CSV column",
             options=column_options,
             index=default_index,
-            key=f"learning_mapping_{base_key}",
+            key=selectbox_key,
             label_visibility="collapsed"
         )
         
@@ -1969,10 +2012,10 @@ def create_learning_enhanced_field_mapping_row(field: str, field_info: dict, df,
     
     with col3:
         # Manual value option
-        if st.button("✏️", key=f"learning_manual_{base_key}", help="Enter manual value"):
+        if st.button("✏️", key=manual_button_key, help="Enter manual value"):
             manual_value = st.text_input(
                 f"Manual value for {field_info['description']}", 
-                key=f"learning_manual_input_{base_key}",
+                key=manual_input_key,
                 placeholder="Enter value..."
             )
             if manual_value:
