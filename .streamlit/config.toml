@@ -1,7 +1,6 @@
 [global]
 # Application settings
 developmentMode = false
-logLevel = "warning"
 showWarningOnDirectExecution = false
 
 [server]
@@ -20,7 +19,6 @@ port = 8501
 # Browser settings
 serverAddress = "localhost"
 gatherUsageStats = false
-showErrorDetails = false
 
 [theme]
 # Application theme
@@ -32,8 +30,6 @@ font = "sans serif"
 
 [client]
 # Client settings
-caching = true
-displayEnabled = true
 showErrorDetails = false
 
 [logger]

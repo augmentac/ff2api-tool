@@ -13,5 +13,19 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), 'src'))
 
 # Import and run the main application
 if __name__ == "__main__":
-    from frontend.app import main
-    main() 
+    try:
+        from src.frontend.app import main
+        main()
+    except ImportError:
+        # Fallback import path
+        from frontend.app import main
+        main()
+else:
+    # For Streamlit Cloud (when imported as module)
+    try:
+        from src.frontend.app import main
+        main()
+    except ImportError:
+        # Fallback import path
+        from frontend.app import main
+        main() 

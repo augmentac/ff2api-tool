@@ -36,19 +36,28 @@ from src.frontend.ui_components import (
     get_full_api_schema
 )
 
-# Configure logging
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-    handlers=[
-        logging.StreamHandler(),
-        logging.FileHandler('data/logs/app.log')
-    ]
-)
-logger = logging.getLogger(__name__)
-
 # Create logs directory if it doesn't exist
 os.makedirs('data/logs', exist_ok=True)
+
+# Configure logging
+try:
+    logging.basicConfig(
+        level=logging.INFO,
+        format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+        handlers=[
+            logging.StreamHandler(),
+            logging.FileHandler('data/logs/app.log')
+        ]
+    )
+except (OSError, PermissionError):
+    # Fallback to console logging only for cloud deployment
+    logging.basicConfig(
+        level=logging.INFO,
+        format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+        handlers=[logging.StreamHandler()]
+    )
+
+logger = logging.getLogger(__name__)
 
 # Authentication functions
 def check_password():
