@@ -1637,15 +1637,17 @@ def create_learning_enhanced_mapping_interface(df, existing_mappings, data_proce
     # Get the API schema
     api_schema = get_full_api_schema()
     
-    # Initialize or get existing mappings
-    if existing_mappings:
+    # Initialize or get existing mappings - prioritize current session state
+    if 'field_mappings' in st.session_state and st.session_state.field_mappings:
+        field_mappings = st.session_state.field_mappings.copy()
+    elif existing_mappings:
         field_mappings = existing_mappings.copy()
     else:
         field_mappings = {}
     
     # Generate smart suggestions with learning enhancement
     suggested_mappings = {}
-    if not existing_mappings:
+    if not field_mappings:  # Only generate suggestions if no mappings exist
         with st.spinner("🧠 Generating smart mapping suggestions..."):
             try:
                 if db_manager and brokerage_name:
