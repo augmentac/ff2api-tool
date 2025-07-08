@@ -1148,34 +1148,17 @@ def _render_landing_page():
     """, unsafe_allow_html=True)
 
 def _render_enhanced_file_upload():
-    """Enhanced file upload area with better visual design"""
-    
-    # Create a prominent upload container
-    st.markdown("""
-        <div style="
-            background: white;
-            border-radius: 1rem;
-            padding: 2rem;
-            border: 2px dashed #cbd5e1;
-            margin: 1rem 0;
-            text-align: center;
-            transition: all 0.3s ease;
-            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
-        ">
-    """, unsafe_allow_html=True)
+    """Clean file upload area without unnecessary containers"""
     
     uploaded_file = st.file_uploader(
         "Choose your file",
         type=['csv', 'xlsx', 'xls'],
         key="main_file_uploader",
-        help="Maximum size: 200MB • Supported formats: CSV, Excel (.xlsx, .xls)",
-        label_visibility="collapsed"
+        help="Maximum size: 200MB • Supported formats: CSV, Excel (.xlsx, .xls)"
     )
     
     if uploaded_file:
         _process_uploaded_file(uploaded_file)
-    
-    st.markdown("</div>", unsafe_allow_html=True)
     
     # File format indicators
     st.markdown("""
