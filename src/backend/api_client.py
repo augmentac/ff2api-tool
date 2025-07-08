@@ -64,40 +64,160 @@ class LoadsAPIClient:
                 json=load_data,
                 timeout=30
             )
-            response.raise_for_status()
             
-            # Handle successful response
-            try:
-                response_data = response.json()
-                return {
-                    'success': True,
-                    'data': response_data,
-                    'status_code': response.status_code
-                }
-            except json.JSONDecodeError:
-                # API returned success but no JSON content (e.g., 204 No Content)
+            # Handle different response codes explicitly
+            if response.status_code == 201:
+                # Load created successfully
+                try:
+                    response_data = response.json()
+                    return {
+                        'success': True,
+                        'data': response_data,
+                        'status_code': response.status_code
+                    }
+                except json.JSONDecodeError:
+                    return {
+                        'success': True,
+                        'data': {'message': 'Load created successfully (no response data)'},
+                        'status_code': response.status_code,
+                        'response_text': response.text
+                    }
+            elif response.status_code == 200:
+                # Success with response data
+                try:
+                    response_data = response.json()
+                    return {
+                        'success': True,
+                        'data': response_data,
+                        'status_code': response.status_code
+                    }
+                except json.JSONDecodeError:
+                    return {
+                        'success': True,
+                        'data': {'message': 'Load processed successfully (no response data)'},
+                        'status_code': response.status_code,
+                        'response_text': response.text
+                    }
+            elif response.status_code == 204:
+                # No content but successful
                 return {
                     'success': True,
                     'data': {'message': 'Load created successfully (no response data)'},
-                    'status_code': response.status_code,
-                    'response_text': response.text
+                    'status_code': response.status_code
                 }
-            except Exception as json_error:
-                # Other JSON parsing errors
+            elif response.status_code == 400:
+                # Bad request - invalid payload
+                try:
+                    error_details = response.json()
+                    return {
+                        'success': False,
+                        'error': f'Bad request: {error_details}',
+                        'status_code': response.status_code
+                    }
+                except json.JSONDecodeError:
+                    return {
+                        'success': False,
+                        'error': f'Bad request: {response.text[:300]}',
+                        'status_code': response.status_code
+                    }
+            elif response.status_code == 422:
+                # Validation error - data format issues
+                try:
+                    error_details = response.json()
+                    return {
+                        'success': False,
+                        'error': f'Validation error: {error_details}',
+                        'status_code': response.status_code
+                    }
+                except json.JSONDecodeError:
+                    return {
+                        'success': False,
+                        'error': f'Validation error: {response.text[:300]}',
+                        'status_code': response.status_code
+                    }
+            elif response.status_code == 401:
+                # Unauthorized - try token refresh
+                refresh_result = self._refresh_token()
+                if refresh_result['success']:
+                    # Retry the request with new token
+                    response = self.session.post(f"{self.base_url}/v2/loads", json=load_data, timeout=30)
+                    if response.status_code in [200, 201, 204]:
+                        try:
+                            response_data = response.json()
+                            return {
+                                'success': True,
+                                'data': response_data,
+                                'status_code': response.status_code
+                            }
+                        except json.JSONDecodeError:
+                            return {
+                                'success': True,
+                                'data': {'message': 'Load created successfully after token refresh'},
+                                'status_code': response.status_code
+                            }
+                    else:
+                        return {
+                            'success': False,
+                            'error': f'Authentication failed after token refresh: HTTP {response.status_code}',
+                            'status_code': response.status_code
+                        }
+                else:
+                    return {
+                        'success': False,
+                        'error': f'Authentication failed: {refresh_result["message"]}',
+                        'status_code': response.status_code
+                    }
+            elif response.status_code == 403:
                 return {
-                    'success': True,
-                    'data': {'message': f'Load created successfully but response parsing failed: {str(json_error)}'},
-                    'status_code': response.status_code,
-                    'response_text': response.text
+                    'success': False,
+                    'error': 'Access forbidden. Check your API key permissions.',
+                    'status_code': response.status_code
                 }
+            elif response.status_code == 404:
+                return {
+                    'success': False,
+                    'error': 'API endpoint not found. Check the base URL.',
+                    'status_code': response.status_code
+                }
+            elif response.status_code == 429:
+                return {
+                    'success': False,
+                    'error': 'Rate limit exceeded. Please retry later.',
+                    'status_code': response.status_code
+                }
+            elif response.status_code >= 500:
+                return {
+                    'success': False,
+                    'error': f'Server error: HTTP {response.status_code}',
+                    'status_code': response.status_code
+                }
+            else:
+                # Other error codes
+                return {
+                    'success': False,
+                    'error': f'HTTP {response.status_code}: {response.text[:200]}',
+                    'status_code': response.status_code
+                }
+                
+        except requests.exceptions.Timeout:
+            return {
+                'success': False,
+                'error': 'Request timeout. Please try again.',
+                'status_code': None
+            }
+        except requests.exceptions.ConnectionError:
+            return {
+                'success': False,
+                'error': 'Connection error. Check your network connectivity.',
+                'status_code': None
+            }
         except requests.exceptions.RequestException as e:
             error_detail = str(e)
             if hasattr(e, 'response') and e.response is not None:
                 try:
                     error_detail = e.response.json()
-                except (json.JSONDecodeError, ValueError) as json_error:
+                except (json.JSONDecodeError, ValueError):
                     error_detail = e.response.text
-                    logging.warning(f"Could not parse create_load error response as JSON: {json_error}")
             return {
                 'success': False,
                 'error': error_detail,
