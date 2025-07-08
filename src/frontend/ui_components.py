@@ -1249,6 +1249,10 @@ def create_enhanced_mapping_with_validation(df, existing_configuration, data_pro
     """Enhanced mapping interface with configuration validation and required-first approach"""
     # Remove duplicate header - it's already shown in the main workflow
     
+    # Initialize tab state management
+    if 'mapping_tab_index' not in st.session_state:
+        st.session_state.mapping_tab_index = 0
+    
     # Get the API schema
     api_schema = get_full_api_schema()
     
@@ -1335,12 +1339,39 @@ def create_enhanced_mapping_with_validation(df, existing_configuration, data_pro
         </div>
     """, unsafe_allow_html=True)
     
-    # Required fields first approach
-    tab1, tab2 = st.tabs([f"⭐ Required Fields ({mapped_required}/{total_required})", f"📄 Optional Fields ({len([f for f in optional_fields.keys() if f in field_mappings])}/{len(optional_fields)})"])
+    # Custom tab interface with persistent state
+    total_optional = len(optional_fields)
+    mapped_optional = len([f for f in optional_fields.keys() if f in field_mappings])
+    
+    # Create custom tab buttons
+    col1, col2 = st.columns(2)
+    
+    with col1:
+        if st.button(
+            f"⭐ Required Fields ({mapped_required}/{total_required})",
+            type="primary" if st.session_state.mapping_tab_index == 0 else "secondary",
+            use_container_width=True,
+            key="required_tab_btn"
+        ):
+            st.session_state.mapping_tab_index = 0
+    
+    with col2:
+        if st.button(
+            f"📄 Optional Fields ({mapped_optional}/{total_optional})",
+            type="primary" if st.session_state.mapping_tab_index == 1 else "secondary",
+            use_container_width=True,
+            key="optional_tab_btn"
+        ):
+            st.session_state.mapping_tab_index = 1
+    
+    # Add some spacing
+    st.markdown("---")
     
     updated_mappings = field_mappings.copy()
     
-    with tab1:
+    # Show content based on selected tab
+    if st.session_state.mapping_tab_index == 0:
+        # Required Fields Tab
         st.markdown("### ⭐ Required Fields (Must be mapped)")
         st.caption("These fields are required by the API and must be mapped before you can proceed.")
         
@@ -1350,12 +1381,9 @@ def create_enhanced_mapping_with_validation(df, existing_configuration, data_pro
             for field, field_info in required_fields.items():
                 create_enhanced_field_mapping_row(field, field_info, df, updated_mappings, required=True, header_comparison=header_comparison)
     
-    with tab2:
+    else:
+        # Optional Fields Tab
         st.markdown("### 📄 Optional Fields (Enhance your data)")
-        
-        # Count mapped optional fields for smart display
-        total_optional = len(optional_fields)
-        mapped_optional = len([f for f in optional_fields.keys() if f in field_mappings])
         
         # Progressive disclosure - show summary first
         if mapped_optional == 0:
@@ -1436,7 +1464,7 @@ def create_enhanced_mapping_with_validation(df, existing_configuration, data_pro
                 st.session_state.field_mappings = updated_mappings
                 mapped_required_after = len([f for f in required_fields.keys() if f in updated_mappings])
                 st.success(f"Applied {len(updated_mappings)} mappings! ({mapped_required_after}/{total_required} required fields mapped)")
-                st.rerun()
+                # Don't rerun - just update the state and let the interface update naturally
         with col2:
             if st.button("🧠 Auto-Map Remaining", use_container_width=True, key="enhanced_auto_map_v2"):
                 with st.spinner("🔄 Generating fresh mapping suggestions..."):
@@ -1444,7 +1472,7 @@ def create_enhanced_mapping_with_validation(df, existing_configuration, data_pro
                         fresh_mappings = data_processor.suggest_mapping(list(df.columns), api_schema, df)
                         st.session_state.field_mappings = fresh_mappings
                         st.success("Generated fresh automatic mappings!")
-                        st.rerun()
+                        # Don't rerun - just update the state and let the interface update naturally
                     except Exception as e:
                         st.error(f"Failed to generate mappings: {str(e)}")
         
@@ -1455,7 +1483,7 @@ def create_enhanced_mapping_with_validation(df, existing_configuration, data_pro
             if st.button("🗑️ Reset All Mappings", use_container_width=True, key="enhanced_reset_all_v2"):
                 st.session_state.field_mappings = {}
                 st.info("Reset all mappings")
-                st.rerun()
+                # Don't rerun - just update the state and let the interface update naturally
         with col2:
             if st.button("💾 Save Progress", use_container_width=True, key="save_config_btn"):
                 st.warning(f"⚠️ Please map all {total_required} required fields before saving")
@@ -1467,7 +1495,7 @@ def create_enhanced_mapping_with_validation(df, existing_configuration, data_pro
             if st.button("✅ Apply All Mappings", type="primary", use_container_width=True, key="enhanced_apply_mappings_v2"):
                 st.session_state.field_mappings = updated_mappings
                 st.success(f"Applied {len(updated_mappings)} mappings! All required fields mapped ✅")
-                st.rerun()
+                # Don't rerun - just update the state and let the interface update naturally
         with col2:
             if st.button("💾 Save & Continue", type="primary", use_container_width=True, key="save_config_btn"):
                 st.session_state.ready_to_save_config = True

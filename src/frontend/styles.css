@@ -759,3 +759,47 @@
     color: var(--success-color);
     font-weight: 600;
 } 
+
+/* ===== CUSTOM TAB STYLING ===== */
+/* Enhanced custom tab button styling */
+.custom-tab-button {
+    background: linear-gradient(135deg, #f8fafc 0%, #f1f5f9 100%);
+    border: 1px solid #e2e8f0;
+    border-radius: 0.5rem;
+    padding: 0.75rem 1rem;
+    font-weight: 500;
+    transition: all 0.2s ease;
+    cursor: pointer;
+    text-align: center;
+    margin-bottom: 0.5rem;
+}
+
+.custom-tab-button:hover {
+    background: linear-gradient(135deg, #e2e8f0 0%, #cbd5e1 100%);
+    transform: translateY(-1px);
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+}
+
+.custom-tab-button.active {
+    background: linear-gradient(135deg, #3b82f6 0%, #2563eb 100%);
+    color: white;
+    border-color: #2563eb;
+    box-shadow: 0 2px 8px rgba(59, 130, 246, 0.3);
+}
+
+.custom-tab-button.active:hover {
+    background: linear-gradient(135deg, #2563eb 0%, #1d4ed8 100%);
+    transform: translateY(-1px);
+}
+
+/* Enhanced tab content styling */
+.custom-tab-content {
+    background: white;
+    border-radius: 0.5rem;
+    padding: 1.5rem;
+    border: 1px solid #e2e8f0;
+    margin-top: 1rem;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
+}
+
+/* ===== EXISTING TABS STYLING ===== */ 

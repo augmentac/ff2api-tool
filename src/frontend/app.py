@@ -602,7 +602,7 @@ def _render_configuration_selection(db_manager, brokerage_name):
                     pass
                 
                 # Clear workflow state
-                keys_to_clear = ['uploaded_df', 'uploaded_file_name', 'file_headers', 'validation_passed', 'header_comparison', 'field_mappings']
+                keys_to_clear = ['uploaded_df', 'uploaded_file_name', 'file_headers', 'validation_passed', 'header_comparison', 'field_mappings', 'mapping_tab_index']
                 for key in keys_to_clear:
                     if key in st.session_state:
                         del st.session_state[key]
@@ -760,7 +760,7 @@ def _render_smart_actions():
     col1, col2 = st.columns(2)
     with col1:
         if st.button("🔄 Reset", key="reset_action", use_container_width=True):
-            keys_to_clear = ['uploaded_df', 'uploaded_file_name', 'field_mappings', 'file_headers', 'validation_passed', 'header_comparison']
+            keys_to_clear = ['uploaded_df', 'uploaded_file_name', 'field_mappings', 'file_headers', 'validation_passed', 'header_comparison', 'mapping_tab_index']
             for key in keys_to_clear:
                 if key in st.session_state:
                     del st.session_state[key]
@@ -1146,7 +1146,7 @@ def _render_modern_file_upload(db_manager, data_processor):
             with col2:
                 if st.button("📂 Change File", key="change_file_btn", use_container_width=True):
                     # Clear file-related state
-                    keys_to_clear = ['uploaded_df', 'uploaded_file_name', 'file_headers', 'validation_passed', 'header_comparison', 'field_mappings']
+                    keys_to_clear = ['uploaded_df', 'uploaded_file_name', 'file_headers', 'validation_passed', 'header_comparison', 'field_mappings', 'mapping_tab_index']
                     for key in keys_to_clear:
                         if key in st.session_state:
                             del st.session_state[key]
@@ -1364,7 +1364,7 @@ def _render_processing_section(db_manager, data_processor):
                 col1, col2 = st.columns(2)
                 with col1:
                     if st.button("🔄 Process Another", type="primary", key="process_another"):
-                        keys_to_clear = ['uploaded_df', 'uploaded_file_name', 'file_headers', 'validation_passed', 'header_comparison', 'field_mappings']
+                        keys_to_clear = ['uploaded_df', 'uploaded_file_name', 'file_headers', 'validation_passed', 'header_comparison', 'field_mappings', 'mapping_tab_index']
                         for key in keys_to_clear:
                             if key in st.session_state:
                                 del st.session_state[key]
