@@ -1721,7 +1721,8 @@ def create_learning_enhanced_mapping_interface(df, existing_mappings, data_proce
                         type="primary" if st.session_state.mapping_tab_index == i else "secondary",
                         use_container_width=True):
                 st.session_state.mapping_tab_index = i
-                st.rerun()
+                # Keep the mapping section expanded when switching tabs
+                st.session_state.mapping_section_expanded = True
     
     # Tab content
     updated_mappings = field_mappings.copy()
@@ -1937,8 +1938,14 @@ def create_learning_enhanced_field_mapping_row(field: str, field_info: dict, df,
             label_visibility="collapsed"
         )
         
+        # Immediately update session state when mapping changes
         if selected_column != "None":
             updated_mappings[field] = selected_column
+            # Update session state immediately
+            if 'field_mappings' not in st.session_state:
+                st.session_state.field_mappings = {}
+            st.session_state.field_mappings[field] = selected_column
+            
             # Show sample data preview
             if selected_column in df.columns:
                 sample_data = df[selected_column].dropna().head(3).tolist()
@@ -1947,6 +1954,9 @@ def create_learning_enhanced_field_mapping_row(field: str, field_info: dict, df,
         elif field in updated_mappings and not updated_mappings[field].startswith('MANUAL_VALUE:'):
             if field in updated_mappings:
                 del updated_mappings[field]
+            # Update session state immediately
+            if 'field_mappings' in st.session_state and field in st.session_state.field_mappings:
+                del st.session_state.field_mappings[field]
     
     with col3:
         # Manual value option
@@ -1958,6 +1968,10 @@ def create_learning_enhanced_field_mapping_row(field: str, field_info: dict, df,
             )
             if manual_value:
                 updated_mappings[field] = f"MANUAL_VALUE:{manual_value}"
+                # Update session state immediately
+                if 'field_mappings' not in st.session_state:
+                    st.session_state.field_mappings = {}
+                st.session_state.field_mappings[field] = f"MANUAL_VALUE:{manual_value}"
                 st.success(f"✅ Set manual value: {manual_value}")
 
 def create_learning_analytics_dashboard(db_manager, brokerage_name):

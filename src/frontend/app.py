@@ -1428,7 +1428,11 @@ def _render_enhanced_progress(current_step):
 def _render_smart_mapping_section(db_manager, data_processor):
     """Smart mapping section with progressive disclosure"""
     
-    with st.expander("🔗 **Field Mapping**", expanded=not st.session_state.get('field_mappings')):
+    # Initialize expandable state in session state if not exists
+    if 'mapping_section_expanded' not in st.session_state:
+        st.session_state.mapping_section_expanded = not st.session_state.get('field_mappings')
+    
+    with st.expander("🔗 **Field Mapping**", expanded=st.session_state.mapping_section_expanded):
         st.caption("Map your CSV columns to API fields")
         
         df = st.session_state.uploaded_df
