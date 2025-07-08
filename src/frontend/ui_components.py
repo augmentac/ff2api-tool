@@ -13,7 +13,6 @@ from datetime import datetime
 from src.backend.database import DatabaseManager
 from src.backend.data_processor import DataProcessor
 import os
-import hashlib
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
