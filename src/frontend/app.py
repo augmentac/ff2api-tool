@@ -846,14 +846,19 @@ def _render_smart_actions():
     # Simple actions header
     st.markdown("**⚡ Actions**")
     
+    # Get state variables safely
+    uploaded_df = st.session_state.get('uploaded_df')
+    validation_passed = st.session_state.get('validation_passed', False)
+    selected_configuration = st.session_state.get('selected_configuration')
+    
     # Primary action based on workflow state - removed redundant Process Data button
-    if st.session_state.get('uploaded_df') is not None and not st.session_state.get('validation_passed'):
+    if uploaded_df is not None and not validation_passed:
         if st.button("🔍 Validate Mapping", type="primary", use_container_width=True, key="primary_action"):
             st.session_state.trigger_validation = True
-    elif st.session_state.get('selected_configuration') and not st.session_state.get('uploaded_df'):
+    elif selected_configuration and uploaded_df is None:
         # Skip upload file action - it's redundant with main upload area
         pass
-    elif not st.session_state.get('selected_configuration'):
+    elif not selected_configuration:
         if st.button("⚙️ Setup Configuration", type="primary", use_container_width=True, key="primary_action"):
             st.session_state.focus_config = True
     
