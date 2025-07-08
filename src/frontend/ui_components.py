@@ -1708,7 +1708,7 @@ def create_learning_enhanced_mapping_interface(df, existing_mappings, data_proce
     tab_cols = st.columns(len(tab_names))
     for i, tab_name in enumerate(tab_names):
         with tab_cols[i]:
-            if st.button(tab_name, key=f"tab_{i}", 
+            if st.button(tab_name, key=f"learning_tab_{i}_{brokerage_name or 'default'}", 
                         type="primary" if st.session_state.mapping_tab_index == i else "secondary",
                         use_container_width=True):
                 st.session_state.mapping_tab_index = i
@@ -1859,8 +1859,11 @@ def create_learning_enhanced_field_mapping_row(field: str, field_info: dict, df,
     """Create a field mapping row with learning indicators"""
     col1, col2, col3 = st.columns([3, 2, 1])
     
-    # Create unique key suffix based on required status
+    # Create unique key suffix based on required status and add hash for extra uniqueness
     key_suffix = "req" if required else "opt"
+    tab_index = st.session_state.get('mapping_tab_index', 0)
+    field_hash = abs(hash(field + str(required) + str(brokerage_name or '') + str(tab_index))) % 10000
+    unique_key = f"{key_suffix}_{tab_index}_{field_hash}"
     
     with col1:
         # Get learning confidence if available
@@ -1916,7 +1919,7 @@ def create_learning_enhanced_field_mapping_row(field: str, field_info: dict, df,
             "Map to CSV column",
             options=column_options,
             index=default_index,
-            key=f"learning_mapping_{field}_{key_suffix}",
+            key=f"learning_mapping_{field}_{unique_key}",
             label_visibility="collapsed"
         )
         
@@ -1933,10 +1936,10 @@ def create_learning_enhanced_field_mapping_row(field: str, field_info: dict, df,
     
     with col3:
         # Manual value option
-        if st.button("✏️", key=f"learning_manual_{field}_{key_suffix}", help="Enter manual value"):
+        if st.button("✏️", key=f"learning_manual_{field}_{unique_key}", help="Enter manual value"):
             manual_value = st.text_input(
                 f"Manual value for {field_info['description']}", 
-                key=f"learning_manual_input_{field}_{key_suffix}",
+                key=f"learning_manual_input_{field}_{unique_key}",
                 placeholder="Enter value..."
             )
             if manual_value:
