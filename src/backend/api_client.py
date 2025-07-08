@@ -1,0 +1,258 @@
+import requests
+import json
+import logging
+from typing import Dict, List, Any
+
+class LoadsAPIClient:
+    def __init__(self, base_url: str, api_key: str):
+        self.base_url = base_url.rstrip('/') if base_url else "https://api.prod.goaugment.com"
+        self.api_key = api_key
+        self.bearer_token = None
+        self.session = requests.Session()
+        self.session.headers.update({
+            'Content-Type': 'application/json'
+        })
+        
+        # Automatically refresh token on initialization
+        self._refresh_token()
+    
+    def _refresh_token(self) -> Dict[str, Any]:
+        """Refresh the bearer token using the API key"""
+        try:
+            response = requests.post(
+                f"{self.base_url}/token/refresh",
+                headers={'Content-Type': 'application/json'},
+                json={'refreshToken': self.api_key},
+                timeout=30
+            )
+            response.raise_for_status()
+            
+            try:
+                token_data = response.json()
+                self.bearer_token = token_data.get('accessToken')
+                
+                if self.bearer_token:
+                    # Update session headers with new token
+                    self.session.headers.update({
+                        'Authorization': f'Bearer {self.bearer_token}'
+                    })
+                    return {'success': True, 'message': 'Token refreshed successfully'}
+                else:
+                    return {'success': False, 'message': 'No access token received from refresh'}
+            except json.JSONDecodeError:
+                return {'success': False, 'message': f'Token refresh failed: Invalid JSON response from server. Status: {response.status_code}, Response: {response.text[:200]}'}
+            except Exception as json_error:
+                return {'success': False, 'message': f'Token refresh failed: JSON parsing error: {str(json_error)}'}
+                
+        except requests.exceptions.RequestException as e:
+            error_detail = str(e)
+            if hasattr(e, 'response') and e.response is not None:
+                try:
+                    error_detail = e.response.json()
+                except (json.JSONDecodeError, ValueError) as json_error:
+                    error_detail = e.response.text
+                    logging.warning(f"Could not parse token refresh error response as JSON: {json_error}")
+            return {'success': False, 'message': f'Token refresh failed: {error_detail}'}
+        except Exception as e:
+            return {'success': False, 'message': f'Token refresh error: {str(e)}'}
+    
+    def create_load(self, load_data: Dict[str, Any]) -> Dict[str, Any]:
+        """Create a single load via API"""
+        try:
+            response = self.session.post(
+                f"{self.base_url}/v2/loads",
+                json=load_data,
+                timeout=30
+            )
+            response.raise_for_status()
+            
+            # Handle successful response
+            try:
+                response_data = response.json()
+                return {
+                    'success': True,
+                    'data': response_data,
+                    'status_code': response.status_code
+                }
+            except json.JSONDecodeError:
+                # API returned success but no JSON content (e.g., 204 No Content)
+                return {
+                    'success': True,
+                    'data': {'message': 'Load created successfully (no response data)'},
+                    'status_code': response.status_code,
+                    'response_text': response.text
+                }
+            except Exception as json_error:
+                # Other JSON parsing errors
+                return {
+                    'success': True,
+                    'data': {'message': f'Load created successfully but response parsing failed: {str(json_error)}'},
+                    'status_code': response.status_code,
+                    'response_text': response.text
+                }
+        except requests.exceptions.RequestException as e:
+            error_detail = str(e)
+            if hasattr(e, 'response') and e.response is not None:
+                try:
+                    error_detail = e.response.json()
+                except (json.JSONDecodeError, ValueError) as json_error:
+                    error_detail = e.response.text
+                    logging.warning(f"Could not parse create_load error response as JSON: {json_error}")
+            return {
+                'success': False,
+                'error': error_detail,
+                'status_code': getattr(e.response, 'status_code', None)
+            }
+        except Exception as e:
+            # Catch any other unexpected errors
+            return {
+                'success': False,
+                'error': f'Unexpected error: {str(e)}',
+                'status_code': None
+            }
+    
+    def bulk_create_loads(self, loads_data: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        """Create multiple loads with detailed results"""
+        results = []
+        
+        for i, load_data in enumerate(loads_data):
+            result = self.create_load(load_data)
+            result['row_index'] = i + 1
+            results.append(result)
+            
+            # Note: Removed artificial delay - implement proper rate limiting if needed
+            # import time
+            # time.sleep(0.1)
+        
+        return results
+    
+    def validate_connection(self) -> Dict[str, Any]:
+        """Test API connection and credentials using minimal required payload"""
+        # First check if token refresh was successful
+        if not self.bearer_token:
+            return {'success': False, 'message': 'Token refresh failed. Please check your API key.'}
+        
+        try:
+            # Minimal payload with only required top-level objects and core load fields
+            test_payload = {
+                "load": {
+                    "loadNumber": "LOAD123456",
+                    "mode": "FTL",
+                    "rateType": "SPOT",
+                    "status": "DRAFT",
+                    "equipment": {
+                        "equipmentType": "DRY_VAN"
+                    },
+                    "route": [
+                        {
+                            "sequence": 1,
+                            "stopActivity": "PICKUP",
+                            "address": {
+                                "street1": "123 Main St",
+                                "city": "Chicago",
+                                "stateOrProvince": "IL",
+                                "postalCode": "60601",
+                                "country": "US"
+                            },
+                            "expectedArrivalWindowStart": "2025-08-01T08:00:00Z",
+                            "expectedArrivalWindowEnd": "2025-08-01T10:00:00Z"
+                        },
+                        {
+                            "sequence": 2,
+                            "stopActivity": "DELIVERY",
+                            "address": {
+                                "street1": "456 Oak Ave",
+                                "city": "Milwaukee",
+                                "stateOrProvince": "WI",
+                                "postalCode": "53202",
+                                "country": "US"
+                            },
+                            "expectedArrivalWindowStart": "2025-08-02T14:00:00Z",
+                            "expectedArrivalWindowEnd": "2025-08-02T16:00:00Z"
+                        }
+                    ],
+                    "items": [
+                        {
+                            "quantity": 1,
+                            "totalWeightLbs": 1000
+                        }
+                    ]
+                },
+                "brokerage": {
+                    "contacts": [
+                        {
+                            "name": "Jane Broker",
+                            "email": "jane.broker@example.com",
+                            "phone": "+15555551234",
+                            "role": "ACCOUNT_MANAGER"
+                        }
+                    ]
+                },
+                "customer": {
+                    "customerId": "cust-0001",
+                    "name": "Acme Corporation"
+                }
+            }
+            
+            response = self.session.post(f"{self.base_url}/v2/loads", json=test_payload, timeout=30)
+            
+            # Handle different response codes
+            if response.status_code == 201:
+                try:
+                    response_data = response.json()
+                    return {'success': True, 'message': f'Connection successful! Load would be created.\nAPI Response: {response_data}'}
+                except (json.JSONDecodeError, ValueError) as json_error:
+                    logging.warning(f"Could not parse HTTP 201 response as JSON: {json_error}")
+                    return {'success': True, 'message': f'Connection successful! Load would be created (HTTP 201 - Created)'}
+            elif response.status_code == 200:
+                try:
+                    response_data = response.json()
+                    return {'success': True, 'message': f'Connection successful! API responded with: {response_data}'}
+                except (json.JSONDecodeError, ValueError) as json_error:
+                    logging.warning(f"Could not parse HTTP 200 response as JSON: {json_error}")
+                    return {'success': True, 'message': f'Connection successful! API responded (HTTP 200 - OK)'}
+            elif response.status_code == 204:
+                return {'success': True, 'message': 'Connection successful! (HTTP 204 - No Content - API accepted the request)'}
+            elif response.status_code == 401:
+                # Try to refresh token once on 401
+                refresh_result = self._refresh_token()
+                if refresh_result['success']:
+                    # Retry the request with new token
+                    response = self.session.post(f"{self.base_url}/v2/loads", json=test_payload, timeout=30)
+                    if response.status_code in [200, 201, 204]:
+                        return {'success': True, 'message': 'Connection successful! (Token refreshed)'}
+                    else:
+                        return {'success': False, 'message': 'Authentication failed even after token refresh. Please check your API key.'}
+                else:
+                    return {'success': False, 'message': f'Authentication failed. Token refresh error: {refresh_result["message"]}'}
+            elif response.status_code == 403:
+                return {'success': False, 'message': 'Access forbidden. Check your API key permissions.'}
+            elif response.status_code == 404:
+                return {'success': False, 'message': 'API endpoint not found. Check the base URL.'}
+            elif response.status_code == 400:
+                try:
+                    error_details = response.json()
+                    return {'success': True, 'message': f'Connection successful! (Bad request - authentication works, payload validation failed)\nDetails: {error_details}'}
+                except (json.JSONDecodeError, ValueError) as json_error:
+                    logging.warning(f"Could not parse HTTP 400 error response as JSON: {json_error}")
+                    return {'success': True, 'message': f'Connection successful! (Bad request - authentication works, payload validation failed)\nDetails: {response.text[:300]}'}
+            elif response.status_code == 422:
+                try:
+                    error_details = response.json()
+                    return {'success': True, 'message': f'Connection successful! (Validation error - authentication works, data format issue)\nAPI Error Details: {error_details}'}
+                except (json.JSONDecodeError, ValueError) as json_error:
+                    logging.warning(f"Could not parse HTTP 422 error response as JSON: {json_error}")
+                    return {'success': True, 'message': f'Connection successful! (Validation error - authentication works, data format issue)\nRaw Error: {response.text[:300]}'}
+            else:
+                return {'success': False, 'message': f'HTTP {response.status_code}: {response.text[:200]}'}
+                
+        except requests.exceptions.Timeout:
+            return {'success': False, 'message': 'Connection timeout. Check your network connection.'}
+        except requests.exceptions.SSLError:
+            return {'success': False, 'message': 'SSL certificate error. Check the API URL.'}
+        except requests.exceptions.ConnectionError:
+            return {'success': False, 'message': 'Connection error. Check the API URL and network connectivity.'}
+        except requests.exceptions.RequestException as e:
+            return {'success': False, 'message': f'Request error: {str(e)}'}
+        except Exception as e:
+            return {'success': False, 'message': f'Unexpected error: {str(e)}'} 

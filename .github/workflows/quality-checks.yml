@@ -1,0 +1,186 @@
+name: Code Quality Checks
+
+on:
+  push:
+    branches: [ main, develop ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  quality-checks:
+    runs-on: ubuntu-latest
+    
+    strategy:
+      matrix:
+        python-version: [3.9, 3.10, 3.11]
+    
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: Set up Python ${{ matrix.python-version }}
+      uses: actions/setup-python@v4
+      with:
+        python-version: ${{ matrix.python-version }}
+    
+    - name: Cache pip dependencies
+      uses: actions/cache@v3
+      with:
+        path: ~/.cache/pip
+        key: ${{ runner.os }}-pip-${{ hashFiles('**/requirements.txt') }}
+        restore-keys: |
+          ${{ runner.os }}-pip-
+    
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install -r requirements.txt
+        pip install flake8 black isort mypy
+    
+    - name: Create required directories
+      run: |
+        mkdir -p data/{uploads,mappings,logs} config
+    
+    - name: Lint with flake8
+      run: |
+        # Stop the build if there are Python syntax errors or undefined names
+        flake8 . --count --select=E9,F63,F7,F82 --show-source --statistics
+        # Exit-zero treats all errors as warnings. GitHub editor is 127 chars wide
+        flake8 . --count --exit-zero --max-complexity=10 --max-line-length=127 --statistics
+    
+    - name: Check code formatting with black
+      run: |
+        black --check --diff .
+      continue-on-error: true
+    
+    - name: Check import sorting with isort
+      run: |
+        isort --check-only --diff .
+      continue-on-error: true
+    
+    - name: Type checking with mypy
+      run: |
+        mypy src/ --ignore-missing-imports
+      continue-on-error: true
+    
+    - name: Test application startup
+      run: |
+        python -c "
+        import sys
+        import os
+        sys.path.insert(0, 'src')
+        
+        # Test imports
+        try:
+            from backend.database import DatabaseManager
+            from backend.data_processor import DataProcessor
+            from backend.api_client import LoadsAPIClient
+            print('✅ All backend imports successful')
+        except Exception as e:
+            print(f'❌ Import error: {e}')
+            sys.exit(1)
+        
+        # Test database initialization
+        try:
+            db = DatabaseManager('test.db')
+            print('✅ Database initialization successful')
+        except Exception as e:
+            print(f'❌ Database error: {e}')
+            sys.exit(1)
+        
+        print('✅ All startup tests passed')
+        "
+    
+    - name: Security check with bandit
+      run: |
+        pip install bandit[toml]
+        bandit -r src/ -f json -o bandit-report.json || true
+        cat bandit-report.json
+      continue-on-error: true
+    
+    - name: Check for secrets in code
+      run: |
+        # Basic check for common secret patterns
+        if grep -r -i "api[_-]key\s*=\s*['\"][^'\"]*['\"]" src/ --exclude-dir=__pycache__ || \
+           grep -r -i "password\s*=\s*['\"][^'\"]*['\"]" src/ --exclude-dir=__pycache__ || \
+           grep -r -i "secret\s*=\s*['\"][^'\"]*['\"]" src/ --exclude-dir=__pycache__; then
+          echo "❌ Potential hardcoded secrets found"
+          exit 1
+        else
+          echo "✅ No hardcoded secrets detected"
+        fi
+    
+    - name: Validate requirements.txt
+      run: |
+        pip install pip-tools
+        python -c "
+        import pkg_resources
+        with open('requirements.txt', 'r') as f:
+            requirements = f.read().splitlines()
+        
+        for req in requirements:
+            if req.strip() and not req.startswith('#'):
+                try:
+                    pkg_resources.Requirement.parse(req)
+                    print(f'✅ Valid requirement: {req}')
+                except Exception as e:
+                    print(f'❌ Invalid requirement: {req} - {e}')
+                    exit(1)
+        
+        print('✅ All requirements are valid')
+        "
+
+  file-structure-check:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: Check required files
+      run: |
+        echo "Checking required files..."
+        
+        required_files=(
+          "README.md"
+          "requirements.txt"
+          "streamlit_app.py"
+          ".streamlit/config.toml"
+          ".streamlit/secrets.toml.template"
+          "src/frontend/app.py"
+          "src/backend/database.py"
+          "src/backend/data_processor.py"
+          "src/backend/api_client.py"
+          "DEPLOYMENT.md"
+          "BACKUP_PROCEDURES.md"
+        )
+        
+        for file in "${required_files[@]}"; do
+          if [ -f "$file" ]; then
+            echo "✅ $file exists"
+          else
+            echo "❌ $file is missing"
+            exit 1
+          fi
+        done
+        
+        echo "✅ All required files present"
+    
+    - name: Check .gitignore
+      run: |
+        echo "Checking .gitignore contains important entries..."
+        
+        required_entries=(
+          ".streamlit/secrets.toml"
+          "data/"
+          "*.db"
+          "*.log"
+          "__pycache__/"
+          ".env"
+        )
+        
+        for entry in "${required_entries[@]}"; do
+          if grep -q "$entry" .gitignore; then
+            echo "✅ .gitignore contains: $entry"
+          else
+            echo "⚠️ .gitignore missing: $entry"
+          fi
+        done 

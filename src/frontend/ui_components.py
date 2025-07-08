@@ -1,0 +1,1580 @@
+"""
+UI Components Module for FF2API
+Contains reusable UI components and styling helpers
+"""
+
+import streamlit as st
+import pandas as pd
+import json
+from typing import List, Dict, Any, Optional, Tuple
+from datetime import datetime
+import os
+import logging
+
+# Configure logging
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
+
+def get_full_api_schema():
+    """Get the complete API schema for validation"""
+    return {
+        # Core Required Fields
+        'load.loadNumber': {'type': 'string', 'required': True, 'description': 'Load Number'},
+        'load.mode': {'type': 'string', 'required': True, 'description': 'Load Mode', 'enum': ['FTL', 'LTL', 'DRAYAGE']},
+        'load.rateType': {'type': 'string', 'required': True, 'description': 'Rate Type', 'enum': ['SPOT', 'CONTRACT', 'DEDICATED', 'PROJECT']},
+        'load.status': {'type': 'string', 'required': True, 'description': 'Load Status', 'enum': ['DRAFT', 'CUSTOMER_CONFIRMED', 'COVERED', 'DISPATCHED', 'AT_PICKUP', 'IN_TRANSIT', 'AT_DELIVERY', 'DELIVERED', 'POD_COLLECTED', 'CANCELED', 'ERROR']},
+        
+        # Route Information
+        'load.route.0.sequence': {'type': 'number', 'required': False, 'description': 'Stop Sequence'},
+        'load.route.0.stopActivity': {'type': 'string', 'required': True, 'description': 'Stop Activity', 'enum': ['PICKUP', 'DELIVERY']},
+        'load.route.0.address.street1': {'type': 'string', 'required': True, 'description': 'Address Street'},
+        'load.route.0.address.city': {'type': 'string', 'required': True, 'description': 'Address City'},
+        'load.route.0.address.stateOrProvince': {'type': 'string', 'required': True, 'description': 'Address State'},
+        'load.route.0.address.postalCode': {'type': 'string', 'required': True, 'description': 'Address ZIP'},
+        'load.route.0.address.country': {'type': 'string', 'required': True, 'description': 'Address Country'},
+        'load.route.0.expectedArrivalWindowStart': {'type': 'date', 'required': True, 'description': 'Expected Arrival Start'},
+        'load.route.0.expectedArrivalWindowEnd': {'type': 'date', 'required': True, 'description': 'Expected Arrival End'},
+        
+        # Delivery Stop Information
+        'load.route.1.sequence': {'type': 'number', 'required': False, 'description': 'Delivery Stop Sequence'},
+        'load.route.1.stopActivity': {'type': 'string', 'required': False, 'description': 'Delivery Stop Activity', 'enum': ['PICKUP', 'DELIVERY']},
+        'load.route.1.address.street1': {'type': 'string', 'required': False, 'description': 'Delivery Address Street'},
+        'load.route.1.address.city': {'type': 'string', 'required': False, 'description': 'Delivery Address City'},
+        'load.route.1.address.stateOrProvince': {'type': 'string', 'required': False, 'description': 'Delivery Address State'},
+        'load.route.1.address.postalCode': {'type': 'string', 'required': False, 'description': 'Delivery Address ZIP'},
+        'load.route.1.address.country': {'type': 'string', 'required': False, 'description': 'Delivery Address Country'},
+        'load.route.1.expectedArrivalWindowStart': {'type': 'date', 'required': False, 'description': 'Delivery Expected Arrival Start'},
+        'load.route.1.expectedArrivalWindowEnd': {'type': 'date', 'required': False, 'description': 'Delivery Expected Arrival End'},
+        
+        # Customer Information
+        'customer.customerId': {'type': 'string', 'required': True, 'description': 'Customer ID'},
+        'customer.name': {'type': 'string', 'required': True, 'description': 'Customer Name'},
+        
+        # Optional fields
+        'load.items.0.quantity': {'type': 'number', 'required': False, 'description': 'Item Quantity'},
+        'load.items.0.totalWeightLbs': {'type': 'number', 'required': False, 'description': 'Total Weight'},
+        'load.equipment.equipmentType': {'type': 'string', 'required': False, 'description': 'Equipment Type', 'enum': ['DRY_VAN', 'FLATBED', 'REEFER', 'CONTAINER', 'OTHER']},
+        
+        # Bid Criteria
+        'bidCriteria.targetCostUsd': {'type': 'number', 'required': False, 'description': 'Target Cost'},
+        'bidCriteria.equipment': {'type': 'string', 'required': False, 'description': 'Required Equipment', 'enum': ['DRY_VAN', 'FLATBED', 'REEFER', 'CONTAINER', 'OTHER']},
+        'bidCriteria.service': {'type': 'string', 'required': False, 'description': 'Service Type', 'enum': ['STANDARD', 'PARTIAL', 'VOLUME', 'HOTSHOT', 'TIME_CRITICAL']},
+        'bidCriteria.accessorials': {'type': 'string', 'required': False, 'description': 'Load Accessorials'},
+        'bidCriteria.totalWeightLbs': {'type': 'number', 'required': False, 'description': 'Total Weight for Bidding'},
+        'bidCriteria.maxBidAmountUsd': {'type': 'number', 'required': False, 'description': 'Maximum Bid Amount'},
+        'carrier.name': {'type': 'string', 'required': False, 'description': 'Carrier Name'},
+        'carrier.dotNumber': {'type': 'number', 'required': False, 'description': 'DOT Number'},
+        'brokerage.contacts.0.name': {'type': 'string', 'required': False, 'description': 'Broker Contact Name'},
+        'brokerage.contacts.0.email': {'type': 'string', 'required': False, 'description': 'Broker Email'},
+        'brokerage.contacts.0.phone': {'type': 'string', 'required': False, 'description': 'Broker Phone'},
+    }
+
+def load_custom_css():
+    """Load custom CSS styles with fallback mechanisms"""
+    try:
+        # Try multiple possible paths for CSS file
+        possible_paths = [
+            'src/frontend/styles.css',
+            '/app/src/frontend/styles.css',
+            './src/frontend/styles.css',
+            'styles.css'
+        ]
+        
+        css_content = None
+        for path in possible_paths:
+            if os.path.exists(path):
+                try:
+                    with open(path, 'r') as f:
+                        css_content = f.read()
+                    break
+                except Exception as e:
+                    continue
+        
+        if css_content:
+            st.markdown(f'<style>{css_content}</style>', unsafe_allow_html=True)
+        else:
+            # Fallback: inline essential CSS with space-saving improvements
+            fallback_css = """
+            <style>
+            :root {
+                --primary-color: #2563eb;
+                --success-color: #10b981;
+                --warning-color: #f59e0b;
+                --error-color: #ef4444;
+                --background-light: #f8fafc;
+                --text-primary: #1e293b;
+                --text-secondary: #64748b;
+            }
+            
+            /* Compact success/warning/error alerts */
+            .stAlert[data-baseweb="notification"] {
+                padding: 0.5rem 1rem !important;
+                margin: 0.5rem 0 !important;
+                border-radius: 0.5rem !important;
+            }
+            
+            .stSuccess {
+                background: rgba(16, 185, 129, 0.1) !important;
+                border: 1px solid rgba(16, 185, 129, 0.2) !important;
+                border-left: 4px solid #10b981 !important;
+            }
+            
+            .stWarning {
+                background: rgba(245, 158, 11, 0.1) !important;
+                border: 1px solid rgba(245, 158, 11, 0.2) !important;
+                border-left: 4px solid #f59e0b !important;
+            }
+            
+            .stError {
+                background: rgba(239, 68, 68, 0.1) !important;
+                border: 1px solid rgba(239, 68, 68, 0.2) !important;
+                border-left: 4px solid #ef4444 !important;
+            }
+            
+            /* Compact headers */
+            .markdown-text-container h3 {
+                margin: 1rem 0 0.5rem 0 !important;
+                font-size: 1.25rem !important;
+            }
+            
+            .markdown-text-container h4 {
+                margin: 0.75rem 0 0.25rem 0 !important;
+                font-size: 1.1rem !important;
+            }
+            
+            /* Reduced spacing between elements */
+            .element-container {
+                margin-bottom: 0.5rem !important;
+            }
+            
+            /* Compact expander styling */
+            .streamlit-expander {
+                margin: 0.25rem 0 !important;
+            }
+            
+            /* Compact caption styling */
+            .caption {
+                margin: 0.25rem 0 !important;
+                font-size: 0.875rem !important;
+            }
+            
+            .main-header {
+                background: linear-gradient(135deg, var(--primary-color), #1d4ed8);
+                padding: 2rem;
+                border-radius: 1rem;
+                margin-bottom: 2rem;
+                color: white;
+            }
+            .custom-card {
+                background: white;
+                border-radius: 0.75rem;
+                padding: 1rem;
+                border: 1px solid #e2e8f0;
+                box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
+                margin-bottom: 0.5rem;
+            }
+            .metric-card {
+                background: white;
+                border-radius: 0.75rem;
+                padding: 1rem;
+                border: 1px solid #e2e8f0;
+                text-align: center;
+            }
+            .metric-value {
+                font-size: 1.5rem;
+                font-weight: 700;
+                color: var(--primary-color);
+                margin-bottom: 0.25rem;
+            }
+            .metric-label {
+                color: var(--text-secondary);
+                font-size: 0.875rem;
+                font-weight: 500;
+            }
+            
+            /* Force sidebar to stay expanded */
+            .css-1d391kg {
+                width: 21rem !important;
+                min-width: 21rem !important;
+            }
+            
+            /* Ensure sidebar visibility */
+            .css-1lcbmhc {
+                display: flex !important;
+            }
+            
+            /* Sidebar toggle button styling */
+            .css-1v3fvcr {
+                position: fixed;
+                top: 10px;
+                left: 10px;
+                z-index: 999;
+            }
+            </style>
+            """
+            st.markdown(fallback_css, unsafe_allow_html=True)
+            
+            # Add JavaScript to maintain sidebar state
+            sidebar_js = """
+            <script>
+            // Force sidebar to stay expanded after file upload
+            function maintainSidebarState() {
+                const sidebar = document.querySelector('.css-1d391kg');
+                if (sidebar) {
+                    sidebar.style.width = '21rem';
+                    sidebar.style.minWidth = '21rem';
+                    sidebar.style.display = 'flex';
+                }
+                
+                const sidebarContent = document.querySelector('.css-1lcbmhc');
+                if (sidebarContent) {
+                    sidebarContent.style.display = 'flex';
+                }
+            }
+            
+            // Run on page load and after updates
+            document.addEventListener('DOMContentLoaded', maintainSidebarState);
+            window.addEventListener('load', maintainSidebarState);
+            
+            // Use MutationObserver to watch for DOM changes
+            const observer = new MutationObserver(maintainSidebarState);
+            observer.observe(document.body, {
+                childList: true,
+                subtree: true,
+                attributes: true,
+                attributeFilter: ['style', 'class']
+            });
+            
+            // Ensure sidebar stays expanded on rerun
+            setTimeout(maintainSidebarState, 100);
+            setTimeout(maintainSidebarState, 500);
+            setTimeout(maintainSidebarState, 1000);
+            </script>
+            """
+            st.markdown(sidebar_js, unsafe_allow_html=True)
+            
+    except Exception as e:
+        # Silent fallback - don't break the app if CSS fails
+        pass
+
+def render_main_header():
+    """Render the main application header with fallback"""
+    try:
+        st.markdown("""
+            <div style="background: linear-gradient(135deg, #2563eb 0%, #1d4ed8 100%); padding: 1rem 2rem; border-radius: 0.5rem; margin-bottom: 1rem;">
+                <h2 style="color: white; margin: 0; font-size: 1.5rem; font-weight: 700;">{CSV} FF2API</h2>
+                <p style="color: rgba(255,255,255,0.9); margin: 0.25rem 0 0 0; font-size: 0.9rem;">flat file to API processing with Augment</p>
+            </div>
+        """, unsafe_allow_html=True)
+    except:
+        # Fallback to standard Streamlit components
+        st.title("{CSV} FF2API")
+        st.markdown("**flat file to API processing with Augment**")
+
+def render_workflow_progress(current_step: int = 1):
+    """Render workflow progress indicator for streamlined workflow"""
+    try:
+        steps = [
+            {"num": 1, "label": "File Upload", "icon": "📂", "desc": "Upload CSV and validate headers"},
+            {"num": 2, "label": "Smart Mapping", "icon": "🔗", "desc": "Map fields with intelligent suggestions"},
+            {"num": 3, "label": "Validation & Save", "icon": "✅", "desc": "Validate data and save configuration"},
+            {"num": 4, "label": "Process & Results", "icon": "🚀", "desc": "Process data and view results"}
+        ]
+        
+        # Create a compact horizontal progress bar using columns
+        st.markdown("""
+            <div style="background: white; padding: 0.75rem 1rem; border-radius: 0.5rem; border: 1px solid #e2e8f0; margin-bottom: 1rem;">
+        """, unsafe_allow_html=True)
+        
+        # Use streamlit columns for better compatibility
+        cols = st.columns([1, 0.2, 1, 0.2, 1, 0.2, 1])
+        
+        for i, step in enumerate(steps):
+            if step["num"] < current_step:
+                status_text = "✅"
+                text_color = "#10b981"
+            elif step["num"] == current_step:
+                status_text = "🔄"
+                text_color = "#2563eb"
+            else:
+                status_text = "⏳"
+                text_color = "#94a3b8"
+            
+            # Step content
+            with cols[i * 2]:
+                st.markdown(f"""
+                    <div style="text-align: center;">
+                        <div style="color: {text_color}; font-size: 1.1rem; margin-bottom: 0.25rem;">{step['icon']}</div>
+                        <div style="color: {text_color}; font-weight: 600; font-size: 0.7rem; line-height: 1.2;">{step['label']}</div>
+                        <div style="color: {text_color}; font-size: 0.6rem;">{status_text}</div>
+                    </div>
+                """, unsafe_allow_html=True)
+            
+            # Connector line (except for last step)
+            if i < len(steps) - 1:
+                connector_color = "#10b981" if step["num"] < current_step else "#e2e8f0"
+                with cols[i * 2 + 1]:
+                    st.markdown(f"""
+                        <div style="text-align: center; padding-top: 1rem;">
+                            <div style="width: 100%; height: 2px; background: {connector_color};"></div>
+                        </div>
+                    """, unsafe_allow_html=True)
+        
+        st.markdown("</div>", unsafe_allow_html=True)
+            
+    except:
+        # Fallback to simple text
+        st.info(f"📍 Current Step: {current_step} of 4")
+
+def render_step_card(step_number: int, title: str, description: str, icon: str = "📋"):
+    """Render a step card with fallback"""
+    try:
+        st.markdown(f"""
+            <div style="background: white; border-radius: 0.75rem; padding: 1.5rem; border: 1px solid #e2e8f0; margin-bottom: 1rem;">
+                <div style="display: flex; align-items: center;">
+                    <div style="width: 3rem; height: 3rem; border-radius: 50%; background: #2563eb; color: white; display: flex; align-items: center; justify-content: center; font-weight: 600; margin-right: 1rem;">
+                        {step_number}
+                    </div>
+                    <div>
+                        <h3 style="margin: 0; color: #1e293b;">{icon} {title}</h3>
+                        <p style="margin: 0; color: #64748b; font-size: 0.9rem;">{description}</p>
+                    </div>
+                </div>
+            </div>
+        """, unsafe_allow_html=True)
+    except:
+        # Fallback to standard components
+        st.subheader(f"Step {step_number}: {icon} {title}")
+        st.write(description)
+        st.markdown("---")
+
+def render_custom_card(title: str, content: str = "", icon: str = "📋", card_type: str = "default"):
+    """Render a custom card with fallback"""
+    try:
+        st.markdown(f"""
+            <div class="custom-card">
+                <div style="display: flex; align-items: center; margin-bottom: 1rem; padding-bottom: 0.75rem; border-bottom: 2px solid #e2e8f0;">
+                    <span style="font-size: 1.5rem; margin-right: 0.75rem;">{icon}</span>
+                    <h3 style="margin: 0; color: #1e293b;">{title}</h3>
+                </div>
+                {f'<div>{content}</div>' if content else ''}
+            </div>
+        """, unsafe_allow_html=True)
+    except:
+        # Fallback to expander
+        with st.expander(f"{icon} {title}", expanded=True):
+            if content:
+                st.write(content)
+
+def render_status_badge(text: str, status: str = "info"):
+    """Render a status badge with fallback"""
+    try:
+        colors = {
+            "success": "#10b981",
+            "warning": "#f59e0b", 
+            "error": "#ef4444",
+            "info": "#2563eb"
+        }
+        color = colors.get(status, "#2563eb")
+        return f'<span style="background: {color}20; color: {color}; padding: 0.25rem 0.75rem; border-radius: 1rem; font-size: 0.8rem; font-weight: 600;">{text}</span>'
+    except:
+        return text
+
+def render_metric_card(value: str, label: str, delta: str = "", delta_positive: bool = True):
+    """Render a metric card with fallback"""
+    try:
+        delta_html = ""
+        if delta:
+            delta_color = "#10b981" if delta_positive else "#ef4444"
+            delta_html = f'<div style="color: {delta_color}; font-size: 0.8rem; margin-top: 0.25rem;">{delta}</div>'
+        
+        st.markdown(f"""
+            <div class="metric-card">
+                <div class="metric-value">{value}</div>
+                <div class="metric-label">{label}</div>
+                {delta_html}
+            </div>
+        """, unsafe_allow_html=True)
+    except:
+        # Fallback to st.metric
+        st.metric(label, value, delta if delta else None)
+
+def create_enhanced_file_uploader(key: str = "file_uploader"):
+    """Create a simplified file uploader"""
+    st.markdown("### 📁 Upload Your File")
+    st.caption("Select a CSV or Excel file containing your freight data")
+    
+    uploaded_file = st.file_uploader(
+        "Choose a file",
+        type=['csv', 'xlsx', 'xls'],
+        key=key,
+        help="Supported formats: CSV, Excel (.xlsx, .xls). Maximum size: 50MB"
+    )
+    
+    # No success message here - will be handled by main workflow
+    return uploaded_file
+
+def create_connection_status_card(api_credentials: Optional[Dict[str, str]]):
+    """Create a connection status card with fallback"""
+    if api_credentials:
+        try:
+            st.markdown(f"""
+                <div style="background: rgba(16, 185, 129, 0.1); padding: 1.5rem; border-radius: 0.75rem; border: 1px solid rgba(16, 185, 129, 0.2); margin-bottom: 1rem;">
+                    <div style="display: flex; align-items: center; margin-bottom: 0.5rem;">
+                        <span style="font-size: 1.5rem; margin-right: 0.5rem;">✅</span>
+                        <strong style="color: #10b981;">API Connection Active</strong>
+                    </div>
+                    <p style="margin: 0; color: #64748b; font-size: 0.9rem;">
+                        Connected to: {api_credentials.get('base_url', 'Unknown')}
+                    </p>
+                </div>
+            """, unsafe_allow_html=True)
+        except:
+            st.success(f"✅ API Connected to: {api_credentials.get('base_url', 'Unknown')}")
+    else:
+        try:
+            st.markdown("""
+                <div style="background: rgba(245, 158, 11, 0.1); padding: 1.5rem; border-radius: 0.75rem; border: 1px solid rgba(245, 158, 11, 0.2); margin-bottom: 1rem;">
+                    <div style="display: flex; align-items: center; margin-bottom: 0.5rem;">
+                        <span style="font-size: 1.5rem; margin-right: 0.5rem;">⚠️</span>
+                        <strong style="color: #f59e0b;">API Connection Required</strong>
+                    </div>
+                    <p style="margin: 0; color: #64748b; font-size: 0.9rem;">
+                        Please configure your API credentials to continue
+                    </p>
+                </div>
+            """, unsafe_allow_html=True)
+        except:
+            st.warning("⚠️ API Connection Required - Please configure your credentials")
+
+def create_data_preview_card(df: pd.DataFrame):
+    """Create a compact, collapsible data preview card"""
+    if df is not None and not df.empty:
+        # Compact metrics in a single line
+        total_records = len(df)
+        total_cols = len(df.columns)
+        non_empty_cols = df.count().sum()
+        completeness = (non_empty_cols / (total_records * total_cols) * 100)
+        
+        # Compact summary with expandable details
+        with st.expander(f"👀 Data Preview - {total_records} records, {total_cols} columns, {completeness:.0f}% complete", expanded=False):
+            # Detailed metrics in compact format
+            col1, col2, col3, col4 = st.columns(4)
+            with col1:
+                st.metric("Records", total_records)
+            with col2:
+                st.metric("Columns", total_cols)
+            with col3:
+                st.metric("Data Points", non_empty_cols)
+            with col4:
+                st.metric("Complete", f"{completeness:.1f}%")
+            
+            # Data table with reduced height
+            st.dataframe(df.head(5), use_container_width=True, height=200)
+            if total_records > 5:
+                st.caption(f"Showing first 5 rows of {total_records} total records")
+
+def create_mapping_progress_indicator(total_fields: int, mapped_fields: int):
+    """Create a mapping progress indicator with fallback"""
+    progress = mapped_fields / total_fields if total_fields > 0 else 0
+    percentage = int(progress * 100)
+    
+    try:
+        st.markdown(f"""
+            <div style="background: white; padding: 1rem; border-radius: 0.75rem; border: 1px solid #e2e8f0; margin-bottom: 1rem;">
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.5rem;">
+                    <strong>Field Mapping Progress</strong>
+                    <span style="color: #2563eb; font-weight: 600;">{mapped_fields}/{total_fields} fields</span>
+                </div>
+                <div style="background: #e2e8f0; height: 8px; border-radius: 4px; overflow: hidden;">
+                    <div style="background: #2563eb; height: 100%; width: {percentage}%; transition: width 0.3s ease;"></div>
+                </div>
+                <div style="text-align: center; margin-top: 0.5rem; color: #64748b; font-size: 0.9rem;">
+                    {percentage}% Complete
+                </div>
+            </div>
+        """, unsafe_allow_html=True)
+    except:
+        # Fallback to Streamlit progress bar
+        st.subheader("Field Mapping Progress")
+        st.progress(progress)
+        st.write(f"{mapped_fields}/{total_fields} fields mapped ({percentage}% complete)")
+
+def create_validation_summary_card(validation_errors: list, total_records: int):
+    """Create a smart validation summary - detailed only when needed"""
+    error_count = len(validation_errors)
+    success_count = total_records - error_count
+    success_rate = (success_count / total_records * 100) if total_records > 0 else 100
+    
+    if error_count == 0:
+        # Perfect validation - minimal display
+        st.success("✅ Perfect! All Records Valid")
+        return True
+    elif success_rate >= 90:
+        # Minor issues - compact warning
+        st.warning(f"⚠️ {error_count} minor issues found ({success_rate:.0f}% valid)")
+        with st.expander(f"View {error_count} validation issues", expanded=False):
+            for i, error in enumerate(validation_errors[:5]):
+                st.caption(f"Row {error.get('row', i+1)}: {str(error)[:100]}...")
+            if error_count > 5:
+                st.caption(f"... and {error_count - 5} more issues")
+        return True
+    else:
+        # Significant issues - show details
+        st.error(f"❌ {error_count} validation issues found ({success_rate:.0f}% valid)")
+        
+        # Compact metrics
+        col1, col2, col3 = st.columns(3)
+        with col1:
+            st.metric("Total", total_records)
+        with col2:
+            st.metric("Valid", success_count, f"{success_rate:.0f}%")
+        with col3:
+            st.metric("Issues", error_count, f"{100-success_rate:.0f}%")
+        
+        # Error details
+        with st.expander("View validation errors", expanded=True):
+            for i, error in enumerate(validation_errors[:10]):
+                st.error(f"Row {error.get('row', i+1)}: {str(error)}")
+            if error_count > 10:
+                st.info(f"... and {error_count - 10} more validation issues")
+        
+        return False
+
+def create_processing_progress_display():
+    """Create a compact processing progress display"""
+    if 'processing_step' not in st.session_state:
+        st.session_state.processing_step = 0
+    
+    steps = [
+        "Preparing data...",
+        "Validating records...",
+        "Formatting for API...",
+        "Submitting to API...",
+        "Processing responses...",
+        "Generating results..."
+    ]
+    
+    current_step = st.session_state.processing_step
+    progress = (current_step + 1) / len(steps)
+    
+    # Compact progress indicator
+    if current_step < len(steps):
+        st.info(f"⚡ Processing: {steps[current_step]} ({current_step + 1}/{len(steps)})")
+        st.progress(progress)
+    else:
+        st.success("✅ Processing complete!")
+
+def create_results_summary_card(success_count: int, failure_count: int, total_time: float):
+    """Create a compact results summary with smart messaging"""
+    total_count = success_count + failure_count
+    success_rate = (success_count / total_count * 100) if total_count > 0 else 0
+    
+    # Single consolidated message with all key information
+    if success_rate == 100:
+        st.success(f"🎉 Processing Complete! All {total_count} records processed successfully in {total_time:.1f}s")
+    elif success_rate >= 90:
+        st.warning(f"⚠️ Processing mostly successful: {success_count}/{total_count} records processed ({success_rate:.0f}% success) in {total_time:.1f}s")
+    else:
+        st.error(f"❌ Processing issues: Only {success_count}/{total_count} records successful ({success_rate:.0f}%) in {total_time:.1f}s")
+    
+    # Compact metrics in a single row
+    col1, col2, col3, col4 = st.columns(4)
+    with col1:
+        st.metric("Total Records", total_count)
+    with col2:
+        st.metric("Successful", success_count, f"{success_rate:.0f}%")
+    with col3:
+        st.metric("Failed", failure_count, f"{100-success_rate:.0f}%")
+    with col4:
+        st.metric("Processing Time", f"{total_time:.1f}s", f"{total_time/total_count:.2f}s per record")
+
+def create_enhanced_button(text: str, button_type: str = "primary", icon: str = "", disabled: bool = False, 
+                          help_text: str = "", key: Optional[str] = None, use_container_width: bool = True):
+    """Create an enhanced button with custom styling"""
+    
+    button_class = ""
+    if button_type == "success":
+        button_class = "success-button"
+    elif button_type == "warning":
+        button_class = "warning-button"
+    elif button_type == "error":
+        button_class = "error-button"
+    
+    # Create the button
+    if button_class:
+        # Use custom CSS class
+        button_clicked = st.button(
+            f"{icon} {text}" if icon else text,
+            disabled=disabled,
+            help=help_text if help_text else None,
+            key=key,
+            use_container_width=use_container_width
+        )
+        
+        # Apply custom styling via CSS injection
+        if button_class:
+            st.markdown(f"""
+                <style>
+                .stButton:last-child > button {{
+                    background: var(--{button_type}-color) !important;
+                }}
+                .stButton:last-child > button:hover {{
+                    filter: brightness(110%) !important;
+                }}
+                </style>
+            """, unsafe_allow_html=True)
+    else:
+        # Convert button_type to valid Streamlit button type
+        streamlit_type = "primary" if button_type in ["primary", "secondary"] else "primary"
+        button_clicked = st.button(
+            f"{icon} {text}" if icon else text,
+            disabled=disabled,
+            help=help_text if help_text else None,
+            key=key,
+            use_container_width=use_container_width,
+            type=streamlit_type
+        )
+    
+    return button_clicked
+
+def create_field_mapping_card(csv_field: str, api_field: str, confidence: Optional[float] = None, 
+                             sample_data: Optional[List[str]] = None):
+    """Create a field mapping visualization card with fallback"""
+    
+    confidence_color = "#10b981" if confidence and confidence > 0.8 else "#f59e0b"
+    confidence_text = f"{confidence*100:.0f}%" if confidence else "Manual"
+    
+    sample_preview = ""
+    if sample_data:
+        preview_items = sample_data[:3]
+        sample_preview = f"""
+            <div style="margin-top: 0.5rem; font-size: 0.8rem; color: #64748b;">
+                <strong>Sample:</strong> {', '.join(str(x) for x in preview_items)}
+                {' ...' if len(sample_data) > 3 else ''}
+            </div>
+        """
+    
+    try:
+        st.markdown(f"""
+            <div style="background: white; border: 1px solid #e2e8f0; 
+                        border-radius: 0.5rem; padding: 1rem; margin-bottom: 0.5rem;">
+                <div style="display: flex; justify-content: space-between; align-items: center;">
+                    <div style="flex: 1;">
+                        <div style="font-weight: 600; color: #1e293b; margin-bottom: 0.25rem;">
+                            📄 {csv_field}
+                        </div>
+                        <div style="color: #64748b; font-size: 0.9rem;">
+                            ➡️ {api_field}
+                        </div>
+                        {sample_preview}
+                    </div>
+                    <div style="text-align: center;">
+                        <span style="background: rgba(37, 99, 235, 0.1); color: {confidence_color}; 
+                                     padding: 0.25rem 0.5rem; border-radius: 0.25rem; font-size: 0.8rem; font-weight: 600;">
+                            {confidence_text}
+                        </span>
+                    </div>
+                </div>
+            </div>
+        """, unsafe_allow_html=True)
+    except:
+        # Fallback to simple text display
+        st.write(f"📄 **{csv_field}** ➡️ {api_field} ({confidence_text})")
+        if sample_data:
+            st.caption(f"Sample: {', '.join(str(x) for x in sample_data[:3])}")
+        st.divider()
+
+def create_company_settings_card(customer_name: str, last_used: Optional[str] = None, fields_mapped: int = 0):
+    """Create a company settings overview card with fallback"""
+    last_used_text = f"Last used: {last_used}" if last_used else "Never used"
+    
+    try:
+        st.markdown(f"""
+            <div style="background: white; border-radius: 0.75rem; padding: 1.5rem; border: 1px solid #e2e8f0; box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1); margin-bottom: 1rem;">
+                <div style="display: flex; justify-content: space-between; align-items: center;">
+                    <div>
+                        <h4 style="margin: 0; color: #1e293b;">🏢 {customer_name}</h4>
+                        <p style="margin: 0.25rem 0 0 0; color: #64748b; font-size: 0.9rem;">
+                            {last_used_text}
+                        </p>
+                    </div>
+                    <div style="text-align: right;">
+                        <div style="background: rgba(37, 99, 235, 0.1); color: #2563eb; 
+                                    padding: 0.5rem; border-radius: 0.5rem; font-weight: 600;">
+                            {fields_mapped} fields mapped
+                        </div>
+                    </div>
+                </div>
+            </div>
+        """, unsafe_allow_html=True)
+    except:
+        # Fallback to simple display
+        st.subheader(f"🏢 {customer_name}")
+        st.write(f"{last_used_text} • {fields_mapped} fields mapped")
+        st.divider()
+
+def show_tooltip(text: str, tooltip: str):
+    """Show text with a tooltip with fallback"""
+    try:
+        st.markdown(f"""
+            <span title="{tooltip}" style="border-bottom: 1px dotted #64748b; cursor: help;">
+                {text}
+            </span>
+        """, unsafe_allow_html=True)
+    except:
+        # Fallback to simple text with help text
+        st.write(f"{text} ❓")
+        st.caption(tooltip)
+
+# Additional helper functions for better compatibility
+def safe_render_html(html_content: str, fallback_text: str = ""):
+    """Safely render HTML with fallback"""
+    try:
+        st.markdown(html_content, unsafe_allow_html=True)
+    except:
+        if fallback_text:
+            st.write(fallback_text)
+
+def create_simple_card(title: str, content: str = "", icon: str = "📋"):
+    """Create a simple card that always works"""
+    st.markdown(f"### {icon} {title}")
+    if content:
+        st.write(content)
+    st.markdown("---")
+
+def create_alert_card(message: str, alert_type: str = "info"):
+    """Create an alert card with fallback"""
+    icons = {
+        "success": "✅",
+        "warning": "⚠️",
+        "error": "❌",
+        "info": "ℹ️"
+    }
+    
+    icon = icons.get(alert_type, "ℹ️")
+    
+    if alert_type == "success":
+        st.success(f"{icon} {message}")
+    elif alert_type == "warning":
+        st.warning(f"{icon} {message}")
+    elif alert_type == "error":
+        st.error(f"{icon} {message}")
+    else:
+        st.info(f"{icon} {message}")
+
+def create_divider_with_text(text: str):
+    """Create a divider with text"""
+    try:
+        st.markdown(f"""
+            <div style="text-align: center; margin: 2rem 0;">
+                <div style="border-top: 1px solid #e2e8f0; position: relative;">
+                    <span style="background: white; padding: 0 1rem; position: absolute; top: -0.5rem; left: 50%; transform: translateX(-50%); color: #64748b; font-size: 0.9rem;">
+                        {text}
+                    </span>
+                </div>
+            </div>
+        """, unsafe_allow_html=True)
+    except:
+        st.markdown(f"--- {text} ---")
+
+def render_loading_spinner(text: str = "Loading..."):
+    """Render a loading spinner with text"""
+    with st.spinner(text):
+        pass 
+
+def create_step_navigation_buttons(current_step: int, can_proceed: bool = False, next_step_callback=None):
+    """Create navigation buttons for workflow steps"""
+    col1, col2, col3 = st.columns([1, 2, 1])
+    
+    with col1:
+        if current_step > 1:
+            if st.button("⬅️ Previous Step", key=f"prev_step_{current_step}"):
+                st.session_state.current_step = max(1, current_step - 1)
+                st.rerun()
+    
+    with col3:
+        if can_proceed and current_step < 6:
+            if st.button("Next Step ➡️", type="primary", key=f"next_step_{current_step}"):
+                st.session_state.current_step = min(6, current_step + 1)
+                if next_step_callback:
+                    next_step_callback()
+                st.rerun()
+
+def create_enhanced_mapping_interface(df, existing_mappings, data_processor):
+    """Create an enhanced, more user-friendly mapping interface"""
+    st.subheader("🔗 Smart Field Mapping")
+    
+    # Get the API schema
+    api_schema = get_full_api_schema()
+    
+    # Separate required and optional fields
+    required_fields = {k: v for k, v in api_schema.items() if v.get('required', False)}
+    optional_fields = {k: v for k, v in api_schema.items() if not v.get('required', False)}
+    
+    # Initialize mappings
+    if existing_mappings:
+        field_mappings = existing_mappings.copy()
+    else:
+        field_mappings = {}
+    
+    # Progress indicator for mapping completeness
+    total_required = len(required_fields)
+    mapped_required = len([f for f in required_fields.keys() if f in field_mappings])
+    
+    if total_required > 0:
+        progress = mapped_required / total_required
+        st.markdown(f"""
+            <div style="background: white; padding: 1rem; border-radius: 0.5rem; margin-bottom: 1rem; border: 1px solid #e2e8f0;">
+                <div style="display: flex; justify-content: space-between; margin-bottom: 0.5rem;">
+                    <strong>Required Fields Progress</strong>
+                    <span style="color: #2563eb;">{mapped_required}/{total_required} completed</span>
+                </div>
+                <div style="background: #e2e8f0; height: 8px; border-radius: 4px;">
+                    <div style="background: #2563eb; height: 100%; width: {progress*100}%; border-radius: 4px; transition: width 0.3s;"></div>
+                </div>
+            </div>
+        """, unsafe_allow_html=True)
+    
+    # Smart mapping suggestions
+    if not existing_mappings:
+        with st.spinner("🧠 Generating smart mapping suggestions..."):
+            try:
+                suggested_mappings = data_processor.suggest_mapping(list(df.columns), api_schema, df)
+                if suggested_mappings:
+                    st.success(f"✨ Generated {len(suggested_mappings)} smart mapping suggestions!")
+                    field_mappings.update(suggested_mappings)
+                else:
+                    st.info("💡 No automatic suggestions found. Please map fields manually below.")
+            except Exception as e:
+                st.warning(f"⚠️ Could not generate smart mappings: {str(e)}")
+    
+    # Tabbed interface for better organization
+    tab1, tab2 = st.tabs(["⭐ Required Fields", "📄 Optional Fields"])
+    
+    updated_mappings = field_mappings.copy()
+    
+    with tab1:
+        st.markdown("### Required Fields (Must be mapped)")
+        if not required_fields:
+            st.info("No required fields found in the API schema.")
+        else:
+            for field, field_info in required_fields.items():
+                create_field_mapping_row(field, field_info, df, updated_mappings, required=True)
+    
+    with tab2:
+        st.markdown("### Optional Fields (Enhance your data)")
+        
+        # Group optional fields by category for better UX
+        categories = {
+            "📍 Location Details": [f for f in optional_fields.keys() if 'address' in f or 'route' in f],
+            "📦 Load Information": [f for f in optional_fields.keys() if 'items' in f or 'equipment' in f or 'weight' in f],
+            "💰 Pricing & Bids": [f for f in optional_fields.keys() if 'bid' in f.lower() or 'cost' in f.lower() or 'rate' in f.lower()],
+            "👥 Contacts & Carriers": [f for f in optional_fields.keys() if 'contact' in f or 'carrier' in f or 'driver' in f],
+            "📋 Other Fields": [f for f in optional_fields.keys() if f not in [item for sublist in [
+                [f for f in optional_fields.keys() if 'address' in f or 'route' in f],
+                [f for f in optional_fields.keys() if 'items' in f or 'equipment' in f or 'weight' in f],
+                [f for f in optional_fields.keys() if 'bid' in f.lower() or 'cost' in f.lower() or 'rate' in f.lower()],
+                [f for f in optional_fields.keys() if 'contact' in f or 'carrier' in f or 'driver' in f]
+            ] for item in sublist]]
+        }
+        
+        for category_name, category_fields in categories.items():
+            if category_fields:
+                with st.expander(f"{category_name} ({len(category_fields)} fields)", expanded=False):
+                    for field in category_fields:
+                        if field in optional_fields:
+                            create_field_mapping_row(field, optional_fields[field], df, updated_mappings, required=False)
+    
+    # Action buttons with better UX
+    st.markdown("---")
+    st.markdown("### Mapping Actions")
+    
+    col1, col2, col3, col4 = st.columns(4)
+    
+    with col1:
+        if st.button("✅ Apply All Mappings", type="primary", use_container_width=True, key="enhanced_apply_mappings"):
+            st.session_state.field_mappings = updated_mappings
+            mapped_required_after = len([f for f in required_fields.keys() if f in updated_mappings])
+            st.success(f"Applied {len(updated_mappings)} mappings! ({mapped_required_after}/{total_required} required fields mapped)")
+            if mapped_required_after == total_required:
+                st.session_state.current_step = max(st.session_state.current_step, 5)
+            st.rerun()
+    
+    with col2:
+        if st.button("🧠 Auto-Map Fields", use_container_width=True, key="enhanced_auto_map"):
+            with st.spinner("🔄 Generating fresh mapping suggestions..."):
+                try:
+                    fresh_mappings = data_processor.suggest_mapping(list(df.columns), api_schema, df)
+                    st.session_state.field_mappings = fresh_mappings
+                    st.success("Generated fresh automatic mappings!")
+                    st.rerun()
+                except Exception as e:
+                    st.error(f"Failed to generate mappings: {str(e)}")
+    
+    with col3:
+        if st.button("🗑️ Clear All", use_container_width=True, key="enhanced_clear_mappings"):
+            st.session_state.field_mappings = {}
+            st.info("Cleared all mappings")
+            st.rerun()
+    
+    with col4:
+        if st.button("💾 Save & Continue", type="secondary", use_container_width=True, key="enhanced_save_continue"):
+            st.session_state.field_mappings = updated_mappings
+            mapped_required_after = len([f for f in required_fields.keys() if f in updated_mappings])
+            if mapped_required_after == total_required:
+                st.session_state.current_step = max(st.session_state.current_step, 5)
+                st.success("✅ Mappings saved! Moving to validation step...")
+                st.rerun()
+            else:
+                st.warning(f"⚠️ Please map all {total_required} required fields before continuing. Currently mapped: {mapped_required_after}")
+    
+    return updated_mappings
+
+def create_field_mapping_row(field: str, field_info: dict, df, updated_mappings: dict, required: bool = False):
+    """Create a single field mapping row with enhanced UX"""
+    col1, col2, col3 = st.columns([3, 2, 1])
+    
+    with col1:
+        # Field description with better formatting
+        required_indicator = "⭐" if required else "📄"
+        color = "#dc2626" if required else "#64748b"
+        
+        st.markdown(f"""
+            <div style="padding: 0.5rem; background: {'rgba(239, 68, 68, 0.05)' if required else 'rgba(248, 250, 252, 1)'}; 
+                        border-radius: 0.5rem; border-left: 3px solid {color};">
+                <div style="font-weight: 600; color: {color};">
+                    {required_indicator} {field_info.get('description', field)}
+                </div>
+                <div style="font-size: 0.8rem; color: #64748b; margin-top: 0.25rem;">
+                    <code>{field}</code>
+                </div>
+                {f'<div style="font-size: 0.75rem; color: #dc2626; margin-top: 0.25rem;"><strong>Required Field</strong></div>' if required else ''}
+                {f'<div style="font-size: 0.75rem; color: #64748b; margin-top: 0.25rem;">Options: {", ".join(field_info["enum"])}</div>' if field_info.get('enum') else ''}
+            </div>
+        """, unsafe_allow_html=True)
+    
+    with col2:
+        # Column selection with current mapping highlighted
+        current_mapping = updated_mappings.get(field, None)
+        column_options = ["None"] + list(df.columns)
+        
+        if current_mapping and current_mapping.startswith('MANUAL_VALUE:'):
+            default_index = 0
+        elif current_mapping and current_mapping in column_options:
+            default_index = column_options.index(current_mapping)
+        else:
+            default_index = 0
+        
+        selected_column = st.selectbox(
+            "Map to CSV column",
+            options=column_options,
+            index=default_index,
+            key=f"enhanced_mapping_{field}",
+            label_visibility="collapsed"
+        )
+        
+        if selected_column != "None":
+            updated_mappings[field] = selected_column
+            # Show sample data preview
+            if selected_column in df.columns:
+                sample_data = df[selected_column].dropna().head(3).tolist()
+                if sample_data:
+                    st.caption(f"Sample: {', '.join(str(x)[:20] for x in sample_data)}")
+        elif field in updated_mappings and not updated_mappings[field].startswith('MANUAL_VALUE:'):
+            if field in updated_mappings:
+                del updated_mappings[field]
+    
+    with col3:
+        # Manual value option with modal-like interface
+        if st.button("✏️", key=f"enhanced_manual_{field}", help="Enter manual value"):
+            manual_value = st.text_input(
+                f"Manual value for {field_info['description']}", 
+                key=f"enhanced_manual_input_{field}",
+                placeholder="Enter value..."
+            )
+            if manual_value:
+                updated_mappings[field] = f"MANUAL_VALUE:{manual_value}"
+                st.success(f"✅ Set manual value: {manual_value}")
+
+ 
+
+def create_brokerage_selection_interface(db_manager):
+    """Create brokerage selection interface with configuration management"""
+    st.markdown("### Select Brokerage")
+    
+    # Get all existing brokerages
+    brokerages = db_manager.get_all_brokerages()
+    
+    col1, col2 = st.columns([2, 1])
+    
+    with col1:
+        # Brokerage selection
+        brokerage_options = ["Create New Brokerage"] + [b['name'] for b in brokerages]
+        
+        selected_option = st.selectbox(
+            "Choose a brokerage",
+            options=brokerage_options,
+            key="brokerage_selection",
+            help="Select an existing brokerage or create a new one"
+        )
+        
+        if selected_option == "Create New Brokerage":
+            brokerage_name = st.text_input(
+                "New Brokerage Name",
+                key="new_brokerage_name",
+                placeholder="Enter brokerage name..."
+            )
+        else:
+            brokerage_name = selected_option
+    
+    with col2:
+        if selected_option != "Create New Brokerage":
+            # Show brokerage info
+            brokerage_info = next((b for b in brokerages if b['name'] == selected_option), None)
+            if brokerage_info:
+                st.markdown(f"""
+                    <div style="background: #f8fafc; padding: 1rem; border-radius: 0.5rem; border-left: 3px solid #3b82f6;">
+                        <div style="font-weight: 600; color: #1e293b;">📊 Brokerage Info</div>
+                        <div style="margin-top: 0.5rem; font-size: 0.9rem; color: #64748b;">
+                            <div>📁 {brokerage_info['config_count']} configurations</div>
+                            <div>📅 Last used: {brokerage_info['last_used'] or 'Never'}</div>
+                        </div>
+                    </div>
+                """, unsafe_allow_html=True)
+    
+    if brokerage_name:
+        return brokerage_name
+    else:
+        st.info("👆 Please select or enter a brokerage name to continue")
+        return None
+
+def create_configuration_management_interface(brokerage_name, db_manager):
+    """Create configuration management interface"""
+    st.markdown("### Configuration Management")
+    
+    # Get existing configurations for this brokerage
+    configurations = db_manager.get_brokerage_configurations(brokerage_name)
+    
+    if configurations:
+        # Show existing configurations
+        st.markdown("#### Existing Configurations")
+        
+        config_option = st.radio(
+            "Choose configuration option:",
+            ["Use existing configuration", "Create new configuration"],
+            key="config_option"
+        )
+        
+        if config_option == "Use existing configuration":
+            # Configuration selection interface
+            selected_config = None
+            
+            for i, config in enumerate(configurations):
+                with st.expander(f"📁 {config['name']}", expanded=i==0):
+                    col1, col2, col3 = st.columns([2, 1, 1])
+                    
+                    with col1:
+                        st.markdown(f"""
+                            **Description:** {config.get('description', 'No description')}
+                            
+                            **Fields mapped:** {config['field_count']}
+                            
+                            **Created:** {config['created_at'][:10]}
+                            
+                            **Last used:** {config['last_used_at'][:10] if config['last_used_at'] else 'Never'}
+                        """)
+                    
+                    with col2:
+                        if st.button(f"📋 Preview", key=f"preview_config_{i}"):
+                            st.json(config['field_mappings'])
+                    
+                    with col3:
+                        if st.button(f"✅ Select", type="primary", key=f"select_config_{i}"):
+                            selected_config = config
+                            st.session_state.selected_configuration = config
+                            st.session_state.brokerage_name = brokerage_name
+                            st.session_state.api_credentials = config['api_credentials']
+                            st.rerun()
+            
+            if 'selected_configuration' in st.session_state:
+                config = st.session_state.selected_configuration
+                st.success(f"✅ Selected configuration: {config['name']}")
+                return config
+        
+        else:  # Create new configuration
+            return create_new_configuration_interface(brokerage_name)
+    
+    else:
+        # No existing configurations
+        st.info("🆕 No existing configurations found. Let's create your first one!")
+        return create_new_configuration_interface(brokerage_name)
+
+def create_new_configuration_interface(brokerage_name):
+    """Create interface for new configuration setup"""
+    st.markdown("#### New Configuration Setup")
+    
+    col1, col2 = st.columns(2)
+    
+    with col1:
+        config_name = st.text_input(
+            "Configuration Name",
+            placeholder="e.g., 'Standard Loads', 'LTL Shipments'",
+            key="new_config_name"
+        )
+        
+        description = st.text_area(
+            "Description (Optional)",
+            placeholder="Describe this configuration...",
+            key="new_config_description"
+        )
+    
+    with col2:
+        st.markdown("#### API Credentials")
+        
+        api_base_url = st.text_input(
+            "API Base URL",
+            value="https://api.prod.goaugment.com",
+            key="new_config_api_url"
+        )
+        
+        api_key = st.text_input(
+            "API Key",
+            type="password",
+            key="new_config_api_key"
+        )
+    
+    if config_name and api_base_url and api_key:
+        # Test API connection
+        if st.button("🔍 Test API Connection", key="test_new_config_api"):
+            try:
+                from src.backend.api_client import LoadsAPIClient
+                client = LoadsAPIClient(api_base_url, api_key)
+                result = client.validate_connection()
+                
+                if result['success']:
+                    st.success("✅ API connection successful!")
+                    
+                    # Store configuration details for use in mapping
+                    st.session_state.new_configuration = {
+                        'brokerage_name': brokerage_name,
+                        'configuration_name': config_name,
+                        'description': description,
+                        'api_credentials': {
+                            'base_url': api_base_url,
+                            'api_key': api_key
+                        }
+                    }
+                    return 'new_configuration'
+                else:
+                    st.error(f"❌ API connection failed: {result['message']}")
+            except Exception as e:
+                st.error(f"❌ Connection test failed: {str(e)}")
+    
+    return None
+
+def create_header_validation_interface(file_headers, db_manager, brokerage_name, configuration_name):
+    """Create interface for header validation against saved configuration"""
+    st.markdown("#### File Header Validation")
+    
+    # Get saved configuration if it exists
+    saved_config = db_manager.get_brokerage_configuration(brokerage_name, configuration_name)
+    
+    if saved_config and saved_config.get('file_headers'):
+        # Compare headers
+        comparison = db_manager.compare_file_headers(saved_config['file_headers'], file_headers)
+        
+        if comparison['status'] == 'identical':
+            # Compact success message - no separate success box
+            return comparison
+            
+        elif comparison['status'] == 'changed':
+            st.warning("⚠️ File headers have changed from saved configuration")
+            
+            col1, col2, col3 = st.columns(3)
+            
+            with col1:
+                if comparison['missing']:
+                    st.markdown("#### ❌ Missing Headers")
+                    st.caption("These headers were in the saved configuration but are missing from your file:")
+                    for header in comparison['missing']:
+                        st.markdown(f"• `{header}`")
+            
+            with col2:
+                if comparison['added']:
+                    st.markdown("#### ➕ New Headers")
+                    st.caption("These headers are new in your file:")
+                    for header in comparison['added']:
+                        st.markdown(f"• `{header}`")
+            
+            with col3:
+                if comparison['common']:
+                    st.markdown("#### ✅ Matching Headers")
+                    st.caption(f"{len(comparison['common'])} headers match:")
+                    with st.expander("View matching headers"):
+                        for header in comparison['common']:
+                            st.markdown(f"• `{header}`")
+            
+            # Configuration update options
+            st.markdown("---")
+            col1, col2 = st.columns(2)
+            
+            with col1:
+                if st.button("🔄 Update Configuration", type="primary", key="update_config_headers"):
+                    st.session_state.update_configuration_headers = True
+                    st.info("💡 Configuration will be updated with new headers after mapping")
+            
+            with col2:
+                if st.button("⚠️ Continue with Current Headers", key="continue_current_headers"):
+                    st.session_state.ignore_header_changes = True
+                    st.info("⚠️ Proceeding with current headers - some mappings may need adjustment")
+        
+        return comparison
+    
+    else:
+        # New configuration - no comparison needed
+        st.info("🆕 New configuration - file headers will be saved with the mapping")
+        return {'status': 'new_config', 'changes': [], 'missing': [], 'added': file_headers}
+
+def create_enhanced_mapping_with_validation(df, existing_configuration, data_processor, header_comparison):
+    """Enhanced mapping interface with configuration validation and required-first approach"""
+    # Remove duplicate header - it's already shown in the main workflow
+    
+    # Get the API schema
+    api_schema = get_full_api_schema()
+    
+    # Separate required and optional fields
+    required_fields = {k: v for k, v in api_schema.items() if v.get('required', False)}
+    optional_fields = {k: v for k, v in api_schema.items() if not v.get('required', False)}
+    
+    # Initialize mappings
+    if existing_configuration:
+        field_mappings = existing_configuration['field_mappings'].copy()
+        st.info(f"📋 Starting with saved configuration mappings ({len(field_mappings)} fields)")
+    else:
+        field_mappings = {}
+    
+    # Handle header changes
+    if header_comparison and header_comparison['status'] == 'changed':
+        # Remove mappings for missing headers
+        for missing_header in header_comparison['missing']:
+            fields_to_remove = [k for k, v in field_mappings.items() if v == missing_header]
+            for field in fields_to_remove:
+                del field_mappings[field]
+        
+        if header_comparison['missing']:
+            st.warning(f"⚠️ Removed {len(header_comparison['missing'])} mappings for missing headers")
+    
+    # Generate smart mappings for new fields
+    if not field_mappings or (header_comparison and header_comparison.get('added')):
+        with st.spinner("🧠 Generating smart mapping suggestions..."):
+            try:
+                suggested_mappings = data_processor.suggest_mapping(list(df.columns), api_schema, df)
+                
+                # Only add suggestions that don't conflict with existing mappings
+                for field, column in suggested_mappings.items():
+                    if field not in field_mappings:
+                        field_mappings[field] = column
+                
+                if suggested_mappings:
+                    st.success(f"✨ Generated {len(suggested_mappings)} smart mapping suggestions!")
+            except Exception as e:
+                st.warning(f"⚠️ Could not generate smart mappings: {str(e)}")
+    
+    # Enhanced progress tracking
+    total_required = len(required_fields)
+    mapped_required = len([f for f in required_fields.keys() if f in field_mappings])
+    progress = mapped_required / total_required if total_required > 0 else 1
+    
+    # Enhanced progress indicator with better visual design
+    progress_color = '#10b981' if progress == 1 else '#3b82f6'
+    st.markdown(f"""
+        <div style="
+            background: linear-gradient(135deg, #f8fafc 0%, #f1f5f9 100%); 
+            padding: 1.25rem; 
+            border-radius: 0.75rem; 
+            border: 1px solid #e2e8f0; 
+            margin-bottom: 1.5rem;
+            box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
+        ">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.75rem;">
+                <div style="font-weight: 600; color: #1e293b; font-size: 1rem;">
+                    📋 Required Fields Progress
+                </div>
+                <div style="
+                    background: {progress_color}; 
+                    color: white; 
+                    padding: 0.25rem 0.75rem; 
+                    border-radius: 1rem; 
+                    font-size: 0.8rem; 
+                    font-weight: 600;
+                ">
+                    {mapped_required}/{total_required}
+                </div>
+            </div>
+            <div style="background: #e2e8f0; height: 8px; border-radius: 4px; overflow: hidden;">
+                <div style="
+                    background: {progress_color}; 
+                    height: 100%; 
+                    width: {progress*100}%; 
+                    border-radius: 4px; 
+                    transition: all 0.3s ease;
+                    box-shadow: 0 2px 4px rgba(59, 130, 246, 0.2);
+                "></div>
+            </div>
+            {f'<div style="margin-top: 0.75rem; color: #10b981; font-size: 0.9rem; font-weight: 500;">✅ All required fields mapped! Ready to proceed.</div>' if progress == 1 else f'<div style="margin-top: 0.75rem; color: #64748b; font-size: 0.9rem;">🔄 {total_required - mapped_required} more required field{"s" if total_required - mapped_required > 1 else ""} to map</div>'}
+        </div>
+    """, unsafe_allow_html=True)
+    
+    # Required fields first approach
+    tab1, tab2 = st.tabs([f"⭐ Required Fields ({mapped_required}/{total_required})", f"📄 Optional Fields ({len([f for f in optional_fields.keys() if f in field_mappings])}/{len(optional_fields)})"])
+    
+    updated_mappings = field_mappings.copy()
+    
+    with tab1:
+        st.markdown("### ⭐ Required Fields (Must be mapped)")
+        st.caption("These fields are required by the API and must be mapped before you can proceed.")
+        
+        if not required_fields:
+            st.info("No required fields found in the API schema.")
+        else:
+            for field, field_info in required_fields.items():
+                create_enhanced_field_mapping_row(field, field_info, df, updated_mappings, required=True, header_comparison=header_comparison)
+    
+    with tab2:
+        st.markdown("### 📄 Optional Fields (Enhance your data)")
+        
+        # Count mapped optional fields for smart display
+        total_optional = len(optional_fields)
+        mapped_optional = len([f for f in optional_fields.keys() if f in field_mappings])
+        
+        # Progressive disclosure - show summary first
+        if mapped_optional == 0:
+            st.info(f"💡 {total_optional} optional fields available to enhance your data")
+        else:
+            st.success(f"✨ {mapped_optional}/{total_optional} optional fields mapped")
+        
+        # Smart categorization with progressive disclosure
+        processed_fields = set()
+        categories = {
+            "💰 Pricing & Bids": [],
+            "📦 Load Information": [],
+            "📍 Location Details": [],
+            "👥 Contacts & Carriers": [],
+            "📋 Other Fields": []
+        }
+        
+        # Categorize fields (priority order)
+        for field in optional_fields.keys():
+            if field in processed_fields:
+                continue
+            if 'bid' in field.lower() or 'cost' in field.lower() or 'rate' in field.lower():
+                categories["💰 Pricing & Bids"].append(field)
+            elif 'items' in field or 'equipment' in field or 'weight' in field:
+                categories["📦 Load Information"].append(field)
+            elif 'address' in field or 'route' in field:
+                categories["📍 Location Details"].append(field)
+            elif 'contact' in field or 'carrier' in field or 'driver' in field:
+                categories["👥 Contacts & Carriers"].append(field)
+            else:
+                categories["📋 Other Fields"].append(field)
+            processed_fields.add(field)
+        
+        # Render categories with smart defaults
+        for category_name, category_fields in categories.items():
+            if category_fields:
+                mapped_in_category = len([f for f in category_fields if f in updated_mappings])
+                # Auto-expand if fields are mapped, otherwise collapsed for cleaner UI
+                expand_default = mapped_in_category > 0 or len(category_fields) <= 3
+                
+                with st.expander(f"{category_name} ({mapped_in_category}/{len(category_fields)})", expanded=expand_default):
+                    for field in category_fields:
+                        if field in optional_fields:
+                            create_enhanced_field_mapping_row(field, optional_fields[field], df, updated_mappings, required=False, header_comparison=header_comparison)
+    
+    # Enhanced sticky action bar with better visual design
+    st.markdown("---")
+    
+    # Create a prominent action bar with better styling
+    st.markdown(f"""
+        <div style="
+            background: linear-gradient(135deg, #ffffff 0%, #f8fafc 100%);
+            border: 1px solid #e2e8f0;
+            border-radius: 0.75rem;
+            padding: 1.25rem;
+            margin: 1rem 0;
+            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.05);
+        ">
+            <div style="
+                font-weight: 600; 
+                color: #1e293b; 
+                font-size: 1rem; 
+                margin-bottom: 0.75rem;
+                text-align: center;
+            ">
+                🎯 Mapping Actions
+            </div>
+        </div>
+    """, unsafe_allow_html=True)
+    
+    # Show contextual actions based on current state
+    if mapped_required < total_required:
+        # Focus on completing required mappings
+        st.markdown("**Complete Required Fields First**")
+        col1, col2 = st.columns([3, 2])
+        with col1:
+            if st.button("✅ Apply Current Mappings", type="primary", use_container_width=True, key="enhanced_apply_mappings_v2"):
+                st.session_state.field_mappings = updated_mappings
+                mapped_required_after = len([f for f in required_fields.keys() if f in updated_mappings])
+                st.success(f"Applied {len(updated_mappings)} mappings! ({mapped_required_after}/{total_required} required fields mapped)")
+                st.rerun()
+        with col2:
+            if st.button("🧠 Auto-Map Remaining", use_container_width=True, key="enhanced_auto_map_v2"):
+                with st.spinner("🔄 Generating fresh mapping suggestions..."):
+                    try:
+                        fresh_mappings = data_processor.suggest_mapping(list(df.columns), api_schema, df)
+                        st.session_state.field_mappings = fresh_mappings
+                        st.success("Generated fresh automatic mappings!")
+                        st.rerun()
+                    except Exception as e:
+                        st.error(f"Failed to generate mappings: {str(e)}")
+        
+        # Secondary actions in a cleaner layout
+        st.markdown("**Additional Options**")
+        col1, col2 = st.columns(2)
+        with col1:
+            if st.button("🗑️ Reset All Mappings", use_container_width=True, key="enhanced_reset_all_v2"):
+                st.session_state.field_mappings = {}
+                st.info("Reset all mappings")
+                st.rerun()
+        with col2:
+            if st.button("💾 Save Progress", use_container_width=True, key="save_config_btn"):
+                st.warning(f"⚠️ Please map all {total_required} required fields before saving")
+    else:
+        # Required mappings complete - show prominent completion actions
+        st.success("🎉 **All Required Fields Mapped!** Ready to proceed.")
+        col1, col2 = st.columns([3, 2])
+        with col1:
+            if st.button("✅ Apply All Mappings", type="primary", use_container_width=True, key="enhanced_apply_mappings_v2"):
+                st.session_state.field_mappings = updated_mappings
+                st.success(f"Applied {len(updated_mappings)} mappings! All required fields mapped ✅")
+                st.rerun()
+        with col2:
+            if st.button("💾 Save & Continue", type="primary", use_container_width=True, key="save_config_btn"):
+                st.session_state.ready_to_save_config = True
+                st.success("✅ Ready to proceed!")
+    
+    return updated_mappings
+
+def create_enhanced_field_mapping_row(field: str, field_info: dict, df, updated_mappings: dict, required: bool = False, header_comparison=None):
+    """Enhanced field mapping row with change indicators"""
+    # Generate a unique key suffix to prevent duplicates
+    field_hash = abs(hash(field)) % 10000
+    key_suffix = f"{field_hash}"
+    
+    # Two-column layout for cleaner design
+    col1, col2 = st.columns([2, 1])
+    
+    with col1:
+        # Enhanced field card with better visual design
+        required_indicator = "⭐" if required else "📄"
+        color = "#dc2626" if required else "#64748b"
+        
+        # Check if this field's mapping might be affected by header changes
+        current_mapping = updated_mappings.get(field)
+        change_indicator_text = ""
+        
+        if header_comparison and current_mapping:
+            if current_mapping in header_comparison.get('missing', []):
+                change_indicator_text = " ⚠️ Header missing"
+            elif current_mapping in header_comparison.get('added', []):
+                change_indicator_text = " ✨ New header"
+        
+        # Compact field description with minimal visual noise
+        description = field_info.get('description', field)
+        if len(description) > 50:
+            description = description[:47] + "..."
+        
+        required_text = " (Required)" if required else ""
+        
+        # Build enum options text safely
+        enum_text = ""
+        if field_info.get('enum'):
+            enum_options = field_info['enum'][:3]
+            enum_text = f' • Options: {", ".join(str(opt) for opt in enum_options)}{"..." if len(field_info["enum"]) > 3 else ""}'
+        
+        # Enhanced field card design with subtle background and better spacing
+        background_style = 'rgba(239, 68, 68, 0.05)' if required else 'rgba(248, 250, 252, 1)'
+        border_color = '#dc2626' if required else '#cbd5e1'
+        
+        st.markdown(f"""
+            <div style="
+                padding: 0.75rem; 
+                background: {background_style}; 
+                border-radius: 0.5rem; 
+                border: 1px solid {border_color}; 
+                margin-bottom: 0.5rem;
+                transition: all 0.2s ease;
+            ">
+                <div style="font-weight: 500; color: {color}; font-size: 0.95rem; margin-bottom: 0.25rem;">
+                    {required_indicator} {description}{required_text}{change_indicator_text}
+                </div>
+                <div style="font-size: 0.75rem; color: #64748b; margin-bottom: 0.25rem;">
+                    <code style="font-size: 0.7rem; background: rgba(0,0,0,0.05); padding: 0.1rem 0.3rem; border-radius: 0.2rem;">{field}</code>
+                </div>
+                {f'<div style="font-size: 0.7rem; color: #64748b;">{enum_text}</div>' if enum_text else ''}
+            </div>
+        """, unsafe_allow_html=True)
+    
+    with col2:
+        # Enhanced mapping controls with integrated manual value option
+        st.markdown("**Mapping Options**")
+        
+        current_mapping = updated_mappings.get(field, None)
+        column_options = ["None"] + list(df.columns) + ["📝 Manual Value"]
+        
+        # Highlight problematic mappings
+        if header_comparison and current_mapping in header_comparison.get('missing', []):
+            st.warning(f"⚠️ '{current_mapping}' header is missing from file")
+        
+        # Determine default selection
+        if current_mapping and current_mapping.startswith('MANUAL_VALUE:'):
+            default_index = len(column_options) - 1  # Manual Value option
+        elif current_mapping and current_mapping in column_options:
+            default_index = column_options.index(current_mapping)
+        else:
+            default_index = 0
+        
+        selected_option = st.selectbox(
+            "Map to CSV column or enter manual value",
+            options=column_options,
+            index=default_index,
+            key=f"enhanced_mapping_v2_{field}_{key_suffix}",
+            label_visibility="collapsed"
+        )
+        
+        # Handle different mapping options
+        if selected_option == "📝 Manual Value":
+            manual_value = st.text_input(
+                "Enter manual value",
+                value=current_mapping.replace('MANUAL_VALUE:', '') if current_mapping and current_mapping.startswith('MANUAL_VALUE:') else '',
+                key=f"enhanced_manual_input_v2_{field}_{key_suffix}",
+                placeholder="Enter value..."
+            )
+            if manual_value:
+                updated_mappings[field] = f"MANUAL_VALUE:{manual_value}"
+                st.success(f"✏️ Manual: {manual_value}")
+            elif field in updated_mappings:
+                del updated_mappings[field]
+        elif selected_option != "None":
+            updated_mappings[field] = selected_option
+            # Show enhanced sample data preview
+            if selected_option in df.columns:
+                sample_data = df[selected_option].dropna().head(3).tolist()
+                if sample_data:
+                    sample_text = ', '.join(str(x)[:12] + ('...' if len(str(x)) > 12 else '') for x in sample_data)
+                    st.caption(f"📋 **Sample:** {sample_text}")
+        else:
+            # Remove mapping if "None" is selected
+            if field in updated_mappings:
+                del updated_mappings[field] 

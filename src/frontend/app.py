@@ -1,0 +1,2184 @@
+import streamlit as st
+import pandas as pd
+import json
+import os
+import sys
+from datetime import datetime
+import logging
+import re
+import hashlib
+
+# Add parent directory to path to enable src imports
+sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
+from src.backend.database import DatabaseManager
+from src.backend.api_client import LoadsAPIClient
+from src.backend.data_processor import DataProcessor
+from src.frontend.ui_components import (
+    load_custom_css, 
+    render_main_header, 
+    create_enhanced_file_uploader,
+    create_connection_status_card,
+    create_data_preview_card,
+    create_mapping_progress_indicator,
+    create_processing_progress_display,
+    create_results_summary_card,
+    create_enhanced_button,
+    create_field_mapping_card,
+    create_step_navigation_buttons,
+    create_enhanced_mapping_interface,
+    create_validation_summary_card,
+    create_company_settings_card,
+    create_brokerage_selection_interface,
+    create_configuration_management_interface,
+    create_header_validation_interface,
+    create_enhanced_mapping_with_validation,
+    get_full_api_schema
+)
+
+# Configure logging
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    handlers=[
+        logging.StreamHandler(),
+        logging.FileHandler('data/logs/app.log')
+    ]
+)
+logger = logging.getLogger(__name__)
+
+# Create logs directory if it doesn't exist
+os.makedirs('data/logs', exist_ok=True)
+
+# Authentication functions
+def check_password():
+    """Check if the user is authenticated"""
+    return st.session_state.get('authenticated', False)
+
+def authenticate_user(password):
+    """Authenticate user with password"""
+    try:
+        # Get password from secrets
+        if 'auth' in st.secrets and 'APP_PASSWORD' in st.secrets.auth:
+            correct_password = st.secrets.auth.APP_PASSWORD
+        else:
+            # Fallback for local development
+            correct_password = "admin123"
+        
+        return password == correct_password
+    except Exception as e:
+        logger.error(f"Authentication error: {e}")
+        return False
+
+def show_login_page():
+    """Display login page"""
+    st.set_page_config(
+        page_title="FF2API - Login",
+        page_icon="🔐",
+        layout="centered"
+    )
+    
+    # Center the login form
+    col1, col2, col3 = st.columns([1, 2, 1])
+    
+    with col2:
+        st.markdown("""
+            <div style="text-align: center; margin-bottom: 2rem;">
+                <h1>🔐 FF2API Access</h1>
+                <p style="color: #666; font-size: 1.1rem;">Enter your team password to continue</p>
+            </div>
+        """, unsafe_allow_html=True)
+        
+        # Login form
+        with st.form("login_form"):
+            password = st.text_input(
+                "Password",
+                type="password",
+                placeholder="Enter team password",
+                help="Contact your team administrator if you don't have the password"
+            )
+            
+            submitted = st.form_submit_button("🚀 Access Application", use_container_width=True)
+            
+            if submitted:
+                if authenticate_user(password):
+                    st.session_state.authenticated = True
+                    st.session_state.login_time = datetime.now()
+                    st.success("✅ Access granted! Redirecting...")
+                    st.rerun()
+                else:
+                    st.error("❌ Incorrect password. Please try again.")
+                    st.info("💡 Contact your team administrator if you need help accessing the application.")
+        
+        # App info
+        st.markdown("---")
+        st.markdown("""
+            <div style="text-align: center; color: #666; font-size: 0.9rem;">
+                <p><strong>FF2API</strong> - Freight File to API Processing Tool</p>
+                <p>For internal company use only</p>
+            </div>
+        """, unsafe_allow_html=True)
+
+def show_logout_option():
+    """Show logout option in sidebar"""
+    with st.sidebar:
+        st.markdown("---")
+        
+        # Show login info
+        if 'login_time' in st.session_state:
+            login_time = st.session_state.login_time
+            duration = datetime.now() - login_time
+            hours = duration.total_seconds() / 3600
+            st.caption(f"🔐 Logged in for {hours:.1f} hours")
+        
+        # Logout button
+        if st.button("🚪 Logout", key="logout_btn", use_container_width=True):
+            # Clear authentication
+            st.session_state.authenticated = False
+            if 'login_time' in st.session_state:
+                del st.session_state.login_time
+            
+            # Clear sensitive data
+            keys_to_clear = ['api_credentials', 'selected_configuration', 'uploaded_df']
+            for key in keys_to_clear:
+                if key in st.session_state:
+                    del st.session_state[key]
+            
+            st.info("👋 Logged out successfully")
+            st.rerun()
+
+def cleanup_old_uploads():
+    """Clean up old uploaded files for security"""
+    try:
+        uploads_dir = "data/uploads"
+        if os.path.exists(uploads_dir):
+            current_time = datetime.now()
+            for filename in os.listdir(uploads_dir):
+                file_path = os.path.join(uploads_dir, filename)
+                if os.path.isfile(file_path):
+                    file_time = datetime.fromtimestamp(os.path.getmtime(file_path))
+                    # Delete files older than 1 hour
+                    if (current_time - file_time).total_seconds() > 3600:
+                        os.remove(file_path)
+                        logging.info(f"Cleaned up old upload: {filename}")
+    except Exception as e:
+        logging.warning(f"Error cleaning up uploads: {e}")
+
+def validate_mapping(df, field_mappings, data_processor):
+    """Validate the current mapping"""
+    try:
+        # Apply mapping
+        mapped_df, mapping_errors = data_processor.apply_mapping(df, field_mappings)
+        
+        if mapping_errors:
+            return [{'row': i, 'errors': [error]} for i, error in enumerate(mapping_errors)]
+        
+        # Use the full API schema for validation
+        api_schema = get_full_api_schema()
+        valid_df, validation_errors = data_processor.validate_data(mapped_df, api_schema)
+        
+        return validation_errors
+    except Exception as e:
+        logger.error(f"Validation error: {str(e)}")
+        return [{'row': 1, 'errors': [f"Validation failed: {str(e)}"]}]
+
+def get_api_credentials():
+    """Get API credentials from session state"""
+    return st.session_state.get('api_credentials')
+
+def clear_api_credentials():
+    """Clear API credentials from session state"""
+    if 'api_credentials' in st.session_state:
+        del st.session_state.api_credentials
+
+def normalize_column_names(df):
+    """Normalize column names for consistency"""
+    df.columns = df.columns.str.strip().str.replace(' ', '_').str.lower()
+    return df
+
+def init_components():
+    db_manager = DatabaseManager()
+    data_processor = DataProcessor()
+    return db_manager, data_processor
+
+def main():
+    # Check authentication first
+    if not check_password():
+        show_login_page()
+        return
+    
+    st.set_page_config(
+        page_title="FF2API",
+        page_icon="{CSV}",
+        layout="wide",
+        initial_sidebar_state="expanded"
+    )
+    
+    # Force sidebar to stay expanded after file upload
+    if 'sidebar_state' not in st.session_state:
+        st.session_state.sidebar_state = 'expanded'
+    
+    # Load custom CSS
+    load_custom_css()
+    
+    # Security: Clean up old uploaded files on startup
+    cleanup_old_uploads()
+    
+    # Render main header
+    render_main_header()
+    
+    # Initialize components
+    db_manager, data_processor = init_components()
+    
+    # Check for critical backup needs at app startup
+    check_critical_backup_needs(db_manager)
+    
+    # Main workflow - no tabs, single clean interface
+    main_workflow(db_manager, data_processor)
+    
+    # Contextual information in sidebar
+    with st.sidebar:
+        show_contextual_information(db_manager)
+        
+        # Show logout option at bottom of sidebar
+        show_logout_option()
+
+
+
+def show_workflow_summary():
+    """Show simplified workflow summary with correct information"""
+    col1, col2, col3 = st.columns(3)
+    
+    with col1:
+        brokerage_name = st.session_state.get('brokerage_name', 'Not selected')
+        st.info(f"🏢 **Brokerage:** {brokerage_name}")
+    
+    with col2:
+        api_status = "✅ Connected" if 'api_credentials' in st.session_state else "❌ Not connected"
+        st.info(f"🔐 **API Status:** {api_status}")
+    
+    with col3:
+        file_status = "✅ Uploaded" if 'uploaded_df' in st.session_state else "❌ No file"
+        st.info(f"📂 **File Status:** {file_status}")
+
+def _render_configuration_status(config):
+    """Render enhanced configuration status with visual indicators"""
+    import streamlit as st
+    
+    # Determine configuration readiness state
+    field_mappings = config.get('field_mappings', {})
+    has_real_mappings = any(not key.startswith('_') for key in field_mappings.keys())
+    api_connected = 'api_credentials' in config and config['api_credentials'].get('api_key')
+    file_uploaded = 'uploaded_df' in st.session_state
+    headers_validated = st.session_state.get('header_comparison', {}).get('status') == 'identical'
+    validation_passed = st.session_state.get('validation_passed', False)
+    
+    # Calculate readiness score
+    readiness_checks = [
+        ('API Connected', api_connected),
+        ('Fields Mapped', has_real_mappings),
+        ('File Uploaded', file_uploaded),
+        ('Headers Validated', headers_validated or not has_real_mappings),
+        ('Data Validated', validation_passed or not file_uploaded)
+    ]
+    
+    ready_count = sum(1 for _, is_ready in readiness_checks if is_ready)
+    total_checks = len(readiness_checks)
+    readiness_percentage = (ready_count / total_checks) * 100
+    
+    # Determine overall status
+    if readiness_percentage == 100:
+        status = "LOCKED 🔒"
+        status_color = "#10b981"
+        bg_color = "rgba(16, 185, 129, 0.05)"
+        border_color = "#10b981"
+    elif readiness_percentage >= 60:
+        status = "READY ✓"
+        status_color = "#3b82f6"
+        bg_color = "rgba(59, 130, 246, 0.05)"
+        border_color = "#3b82f6"
+    elif readiness_percentage >= 40:
+        status = "ACTIVE"
+        status_color = "#f59e0b"
+        bg_color = "rgba(245, 158, 11, 0.05)"
+        border_color = "#f59e0b"
+    else:
+        status = "SETUP"
+        status_color = "#6b7280"
+        bg_color = "rgba(107, 114, 128, 0.05)"
+        border_color = "#6b7280"
+    
+    # Use a simpler, more reliable rendering approach
+    # Status header
+    col1, col2 = st.columns([2, 1])
+    with col1:
+        if status == "LOCKED 🔒":
+            st.success(f"🔒 {status}")
+        elif status == "READY ✓":
+            st.info(f"✅ {status}")
+        elif status == "ACTIVE":
+            st.warning(f"🔄 {status}")
+        else:
+            st.caption(f"⚙️ {status}")
+    with col2:
+        st.caption(f"{ready_count}/{total_checks} checks")
+    
+    # Progress bar
+    progress = readiness_percentage / 100
+    st.progress(progress, text=f"{readiness_percentage:.0f}% Ready")
+    
+    # Configuration details
+    st.caption(f"📅 Created: {config['created_at'][:10]}")
+    st.caption(f"🔗 {config['field_count']} fields mapped")
+    st.caption(f"🔄 Updated: {config.get('updated_at', config['created_at'])[:10]}")
+    
+    # Show detailed status checks
+    with st.expander("🔍 Configuration Status Details", expanded=False):
+        for check_name, is_ready in readiness_checks:
+            icon = "✅" if is_ready else "⏳"
+            st.write(f"{icon} {check_name}")
+    
+    # Quick actions based on status
+    if readiness_percentage == 100:
+        st.markdown("### ⚡ Quick Actions")
+        col1, col2 = st.columns(2)
+        with col1:
+            if st.button("🚀 Process Now", type="primary", use_container_width=True, key="sidebar_process_now"):
+                # Scroll to process section or trigger processing
+                st.session_state.trigger_processing = True
+        with col2:
+            if st.button("📋 View Summary", use_container_width=True, key="sidebar_view_summary"):
+                st.session_state.show_config_summary = True
+    elif readiness_percentage >= 40:
+        if not file_uploaded:
+            st.info("📁 Upload a file to continue with field mapping")
+        elif not has_real_mappings:
+            st.info("🔗 Complete field mapping to lock configuration")
+    
+    # Connection status indicator
+    if api_connected:
+        api_url = config['api_credentials'].get('base_url', '')
+        short_url = api_url.replace('https://', '').replace('http://', '')[:15] + '...' if len(api_url) > 18 else api_url
+        st.success(f"🟢 {short_url} Ready ✅")
+    else:
+        st.error("🔴 API Not Connected ❌")
+
+def show_contextual_information(db_manager):
+    """Compact, polished sidebar with better styling"""
+    
+    # Extremely compact CSS for minimal spacing
+    st.markdown("""
+        <style>
+        /* Extremely compact sidebar styling */
+        .element-container {
+            margin-bottom: 0.05rem !important;
+        }
+        .stExpander {
+            margin: 0.05rem 0 !important;
+        }
+        .stProgress {
+            margin: 0.05rem 0 !important;
+        }
+        .stMarkdown {
+            margin-bottom: 0.05rem !important;
+        }
+        .stSelectbox {
+            margin-bottom: 0.1rem !important;
+        }
+        .stButton {
+            margin: 0.05rem 0 !important;
+        }
+        .stTextInput {
+            margin-bottom: 0.1rem !important;
+        }
+        /* Remove ALL excessive padding from sidebar */
+        .css-1d391kg {
+            padding-top: 0.5rem !important;
+        }
+        /* Tighten up form elements */
+        .stFormSubmitButton {
+            margin-top: 0.1rem !important;
+        }
+        /* Remove spacing between sidebar elements */
+        .css-1d391kg .element-container {
+            margin-bottom: 0.05rem !important;
+        }
+        /* Compact selectbox labels */
+        .stSelectbox label {
+            margin-bottom: 0.1rem !important;
+        }
+        /* Compact button containers */
+        .stButton > button {
+            margin-bottom: 0.05rem !important;
+        }
+        /* Additional sidebar compacting */
+        .css-1d391kg {
+            padding-top: 0.25rem !important;
+            padding-bottom: 0.25rem !important;
+        }
+        /* Target Streamlit's default sidebar container */
+        .css-1l02zno {
+            padding-top: 0.25rem !important;
+        }
+        /* Make sure all sidebar elements are tight */
+        .css-1d391kg > div {
+            margin-bottom: 0.05rem !important;
+        }
+        </style>
+    """, unsafe_allow_html=True)
+    
+    # Extremely compact header
+    st.markdown("""
+        <div style="
+            background: linear-gradient(135deg, #f8fafc 0%, #e2e8f0 100%);
+            border-radius: 4px;
+            padding: 4px 8px;
+            margin: 0 0 4px 0;
+            border: 1px solid #e2e8f0;
+        ">
+            <h4 style="
+                margin: 0;
+                color: #1e293b;
+                font-size: 0.95rem;
+                font-weight: 600;
+                display: flex;
+                align-items: center;
+                gap: 4px;
+            ">
+                ⚙️ Configuration
+            </h4>
+        </div>
+    """, unsafe_allow_html=True)
+    
+    # Extremely compact brokerage section
+    st.markdown('<div style="margin: 2px 0 1px 0;"><strong style="color: #374151; font-size: 0.85rem;">🏢 Brokerage</strong></div>', unsafe_allow_html=True)
+    _render_brokerage_selection(db_manager)
+    
+    # Extremely compact configuration selection
+    selected_brokerage = st.session_state.get('brokerage_name')
+    if selected_brokerage:
+        st.markdown('<div style="margin: 4px 0 1px 0;"><strong style="color: #374151; font-size: 0.85rem;">⚙️ Configuration</strong></div>', unsafe_allow_html=True)
+        _render_configuration_selection(db_manager, selected_brokerage)
+    
+    # Extremely compact status section
+    if selected_brokerage and st.session_state.get('selected_configuration'):
+        st.markdown('<div style="margin: 4px 0 2px 0; border-top: 1px solid #e5e7eb;"></div>', unsafe_allow_html=True)
+        _render_consolidated_status()
+    
+    # Extremely compact actions section  
+    if selected_brokerage:
+        st.markdown('<div style="margin: 4px 0 2px 0; border-top: 1px solid #e5e7eb;"></div>', unsafe_allow_html=True)
+        _render_smart_actions()
+    
+    # Expandable sections
+    if selected_brokerage:
+        with st.expander("📊 Advanced Info", expanded=False):
+            _render_advanced_info(db_manager)
+    
+    if _has_session_data():
+        with st.expander("🔧 Session Details", expanded=False):
+            _render_session_details()
+    
+    # Database management section
+    render_database_management_section()
+
+def _render_brokerage_selection(db_manager):
+    """Render compact brokerage selection"""
+    try:
+        brokerages = db_manager.get_all_brokerages()
+        brokerage_options = [b['name'] for b in brokerages] if brokerages else []
+    except:
+        brokerage_options = []
+    
+    if brokerage_options:
+        # Improved dropdown with better default selection
+        current_brokerage = st.session_state.get('brokerage_name', '')
+        if current_brokerage in brokerage_options:
+            default_index = brokerage_options.index(current_brokerage) + 1
+        else:
+            default_index = 0
+            
+        selected_brokerage = st.selectbox(
+            "Select Brokerage",
+            options=["-- Choose a brokerage --"] + brokerage_options,
+            index=default_index,
+            key="sidebar_brokerage_select",
+            help="Choose your brokerage from the list"
+        )
+        
+        # Compact new brokerage option
+        if st.button("➕ New Brokerage", key="new_brokerage_btn", use_container_width=True):
+            st.session_state.show_new_brokerage_form = True
+        
+        if st.session_state.get('show_new_brokerage_form'):
+            new_brokerage = st.text_input(
+                "New brokerage name",
+                placeholder="Enter brokerage name",
+                key="sidebar_new_brokerage_input"
+            )
+            col1, col2 = st.columns(2)
+            with col1:
+                if st.button("Create", key="create_brokerage_btn", use_container_width=True):
+                    if new_brokerage.strip():
+                        st.session_state.brokerage_name = new_brokerage.strip()
+                        st.session_state.show_new_brokerage_form = False
+                        st.success(f"✅ Created: {new_brokerage.strip()}")
+                        st.rerun()
+            with col2:
+                if st.button("Cancel", key="cancel_brokerage_btn", use_container_width=True):
+                    st.session_state.show_new_brokerage_form = False
+                    st.rerun()
+    else:
+        # Direct input for first brokerage
+        new_brokerage = st.text_input(
+            "Enter brokerage name",
+            value=st.session_state.get('brokerage_name', ''),
+            placeholder="Your brokerage name",
+            key="sidebar_brokerage_input",
+            help="Enter the name of your brokerage company"
+        )
+        if new_brokerage.strip():
+            selected_brokerage = new_brokerage.strip()
+        else:
+            selected_brokerage = None
+    
+    # Update session state
+    if selected_brokerage and selected_brokerage.strip() and selected_brokerage != "-- Choose a brokerage --":
+        st.session_state.brokerage_name = selected_brokerage.strip()
+
+def _render_configuration_selection(db_manager, brokerage_name):
+    """Render compact configuration selection"""
+    try:
+        configurations = db_manager.get_brokerage_configurations(brokerage_name)
+    except:
+        configurations = []
+    
+    if configurations:
+        config_options = [c['name'] for c in configurations]
+        
+        # Smart default selection
+        default_index = 0
+        if 'auto_select_config' in st.session_state:
+            auto_select = st.session_state.auto_select_config
+            if auto_select in config_options:
+                default_index = config_options.index(auto_select) + 1
+            del st.session_state.auto_select_config
+        elif 'selected_configuration' in st.session_state:
+            current_config = st.session_state.selected_configuration
+            if current_config['name'] in config_options:
+                default_index = config_options.index(current_config['name']) + 1
+        
+        selected_config_display = st.selectbox(
+            "Select Configuration",
+            options=["-- Choose a configuration --"] + config_options + ["➕ Create New"],
+            index=default_index,
+            key="sidebar_config_select",
+            help="Choose an existing configuration or create a new one"
+        )
+        
+        if selected_config_display and selected_config_display not in ["-- Choose a configuration --", "➕ Create New"]:
+            selected_config = next(c for c in configurations if c['name'] == selected_config_display)
+            
+            # Update session state if new selection
+            current_selection = st.session_state.get('selected_configuration', {}).get('name', '')
+            if current_selection != selected_config_display:
+                st.session_state.selected_configuration = selected_config
+                st.session_state.configuration_type = 'existing'
+                st.session_state.api_credentials = selected_config['api_credentials']
+                
+                # Update last used
+                try:
+                    db_manager.update_configuration_last_used(brokerage_name, selected_config['name'])
+                except:
+                    pass
+                
+                # Clear workflow state
+                keys_to_clear = ['uploaded_df', 'uploaded_file_name', 'file_headers', 'validation_passed', 'header_comparison', 'field_mappings']
+                for key in keys_to_clear:
+                    if key in st.session_state:
+                        del st.session_state[key]
+                
+                st.rerun()
+                
+        elif selected_config_display == "➕ Create New":
+            st.session_state.configuration_type = 'new'
+            _render_new_configuration_form(brokerage_name, db_manager)
+    else:
+        # No configurations - show create form
+        st.session_state.configuration_type = 'new'
+        st.info("💡 Create your first configuration")
+        _render_new_configuration_form(brokerage_name, db_manager)
+
+def _render_consolidated_status():
+    """Render compact, polished status information"""
+    config = st.session_state.get('selected_configuration', {})
+    
+    # Calculate readiness
+    field_mappings = config.get('field_mappings', {})
+    has_real_mappings = any(not key.startswith('_') for key in field_mappings.keys())
+    api_connected = 'api_credentials' in config and config['api_credentials'].get('api_key')
+    file_uploaded = 'uploaded_df' in st.session_state
+    headers_validated = st.session_state.get('header_comparison', {}).get('status') == 'identical'
+    validation_passed = st.session_state.get('validation_passed', False)
+    
+    readiness_checks = [
+        ('API Connected', api_connected),
+        ('Fields Mapped', has_real_mappings),
+        ('File Uploaded', file_uploaded),
+        ('Headers Validated', headers_validated or not has_real_mappings),
+        ('Data Validated', validation_passed or not file_uploaded)
+    ]
+    
+    ready_count = sum(1 for _, is_ready in readiness_checks if is_ready)
+    total_checks = len(readiness_checks)
+    readiness_percentage = (ready_count / total_checks) * 100
+    
+    # Fixed status determination with proper thresholds
+    if readiness_percentage == 100:
+        status_text = "🔒 LOCKED"
+        status_color = "#10b981"
+        bg_color = "#f0fdf4"
+    elif readiness_percentage >= 80:  # Only show READY at 80%+ (4/5 checks)
+        status_text = "✅ READY"
+        status_color = "#3b82f6"
+        bg_color = "#eff6ff"
+    elif readiness_percentage >= 60:  # Show ACTIVE at 60%+ (3/5 checks)
+        status_text = "🔄 ACTIVE"
+        status_color = "#f59e0b"
+        bg_color = "#fffbeb"
+    elif readiness_percentage >= 40:  # Show PROGRESS at 40%+ (2/5 checks)
+        status_text = "⚡ PROGRESS"
+        status_color = "#8b5cf6"
+        bg_color = "#f5f3ff"
+    else:
+        status_text = "⚙️ SETUP"
+        status_color = "#6b7280"
+        bg_color = "#f9fafb"
+    
+    # Compact, clean status display
+    progress = ready_count / total_checks
+    
+    st.markdown(f"""
+        <div style="
+            background: {bg_color};
+            border-left: 2px solid {status_color};
+            border-radius: 2px;
+            padding: 3px 6px;
+            margin: 2px 0;
+        ">
+            <div style="
+                display: flex;
+                justify-content: space-between;
+                align-items: center;
+                margin-bottom: 2px;
+            ">
+                <strong style="color: {status_color}; font-size: 0.8rem;">📊 Status: {status_text}</strong>
+                <span style="color: {status_color}; font-size: 0.7rem; font-weight: 600;">{ready_count}/{total_checks}</span>
+            </div>
+            <div style="
+                background: rgba(255, 255, 255, 0.7);
+                height: 3px;
+                border-radius: 2px;
+                overflow: hidden;
+            ">
+                <div style="
+                    background: {status_color};
+                    height: 100%;
+                    width: {progress * 100}%;
+                    border-radius: 2px;
+                    transition: width 0.3s ease;
+                "></div>
+            </div>
+        </div>
+    """, unsafe_allow_html=True)
+    
+    # Compact guidance messaging
+    if readiness_percentage == 100:
+        st.markdown('<div style="margin: 4px 0;"><span style="background: #d1fae5; color: #065f46; padding: 4px 8px; border-radius: 4px; font-size: 0.85rem;">🚀 Ready to process!</span></div>', unsafe_allow_html=True)
+    elif readiness_percentage >= 80:
+        if not file_uploaded:
+            st.markdown('<div style="margin: 4px 0;"><span style="background: #dbeafe; color: #1e40af; padding: 4px 8px; border-radius: 4px; font-size: 0.85rem;">💡 Upload a file to continue</span></div>', unsafe_allow_html=True)
+        elif not validation_passed:
+            st.markdown('<div style="margin: 4px 0;"><span style="background: #dbeafe; color: #1e40af; padding: 4px 8px; border-radius: 4px; font-size: 0.85rem;">💡 Validate your data mapping</span></div>', unsafe_allow_html=True)
+        else:
+            st.markdown('<div style="margin: 4px 0;"><span style="background: #d1fae5; color: #065f46; padding: 4px 8px; border-radius: 4px; font-size: 0.85rem;">🎯 Almost ready!</span></div>', unsafe_allow_html=True)
+    elif readiness_percentage >= 60:
+        missing_items = []
+        if not api_connected:
+            missing_items.append("API connection")
+        if not has_real_mappings:
+            missing_items.append("field mappings")
+        if not file_uploaded:
+            missing_items.append("file upload")
+        st.markdown(f'<div style="margin: 1px 0;"><span style="background: #fef3c7; color: #92400e; padding: 1px 4px; border-radius: 2px; font-size: 0.7rem;">⚡ Missing: {", ".join(missing_items)}</span></div>', unsafe_allow_html=True)
+    elif readiness_percentage >= 40:
+        st.markdown('<div style="margin: 1px 0;"><span style="background: #ede9fe; color: #5b21b6; padding: 1px 4px; border-radius: 2px; font-size: 0.7rem;">📈 Making progress</span></div>', unsafe_allow_html=True)
+    else:
+        st.markdown('<div style="margin: 1px 0;"><span style="background: #f3f4f6; color: #374151; padding: 1px 4px; border-radius: 2px; font-size: 0.7rem;">⚙️ Start by connecting API</span></div>', unsafe_allow_html=True)
+    
+    # Compact details
+    with st.expander("📋 Status Details"):
+        for name, is_ready in readiness_checks:
+            icon = "✅" if is_ready else "⏳"
+            st.caption(f"{icon} {name}")
+        
+        if config.get('created_at'):
+            st.caption(f"📅 Created: {config['created_at'][:10]}")
+        if config.get('field_count', 0) > 0:
+            st.caption(f"🔗 Fields: {config['field_count']}")
+
+def _render_smart_actions():
+    """Render clean, functional action buttons"""
+    
+    # Simple actions header
+    st.markdown("**⚡ Actions**")
+    
+    # Primary action based on workflow state
+    if st.session_state.get('validation_passed'):
+        if st.button("🚀 Process Data", type="primary", use_container_width=True, key="primary_action"):
+            st.session_state.trigger_processing = True
+    elif st.session_state.get('uploaded_df') is not None:
+        if st.button("🔍 Validate Mapping", type="primary", use_container_width=True, key="primary_action"):
+            st.session_state.trigger_validation = True
+    elif st.session_state.get('selected_configuration'):
+        # Skip upload file action - it's redundant with main upload area
+        pass
+    else:
+        if st.button("⚙️ Setup Configuration", type="primary", use_container_width=True, key="primary_action"):
+            st.session_state.focus_config = True
+    
+    # Compact secondary actions
+    col1, col2 = st.columns(2)
+    with col1:
+        if st.button("🔄 Reset", key="reset_action", use_container_width=True):
+            keys_to_clear = ['uploaded_df', 'uploaded_file_name', 'field_mappings', 'file_headers', 'validation_passed', 'header_comparison']
+            for key in keys_to_clear:
+                if key in st.session_state:
+                    del st.session_state[key]
+            st.rerun()
+    
+    with col2:
+        if st.button("🗑️ Clear All", key="clear_all_action", use_container_width=True):
+            for key in list(st.session_state.keys()):
+                del st.session_state[key]
+            st.rerun()
+
+def _render_advanced_info(db_manager):
+    """Render clean advanced information"""
+    brokerage_name = st.session_state.get('brokerage_name')
+    if not brokerage_name:
+        st.info("Select a brokerage to view analytics")
+        return
+    
+    # Simple metrics
+    try:
+        configurations = db_manager.get_brokerage_configurations(brokerage_name)
+        recent_uploads = db_manager.get_brokerage_upload_history(brokerage_name, limit=5)
+        
+        col1, col2 = st.columns(2)
+        with col1:
+            st.metric("⚙️ Configurations", len(configurations))
+        with col2:
+            st.metric("📤 Recent Uploads", len(recent_uploads))
+        
+        # Recent activity (only if exists)
+        if recent_uploads:
+            st.markdown("**Recent Activity:**")
+            for upload in recent_uploads[:3]:
+                success_rate = (upload[5] / upload[4] * 100) if upload[4] > 0 else 0
+                icon = "✅" if success_rate > 90 else "⚠️" if success_rate > 50 else "❌"
+                date_str = upload[11][:10] if len(upload) > 11 else "Unknown"
+                st.caption(f"{icon} {upload[4]} records • {success_rate:.1f}% success • {date_str}")
+        
+    except Exception as e:
+        st.error("Unable to load analytics data")
+
+def _render_session_details():
+    """Render clean session details"""
+    # Show essential session info
+    details = []
+    
+    if 'brokerage_name' in st.session_state:
+        details.append(f"🏢 {st.session_state.brokerage_name}")
+    
+    if 'selected_configuration' in st.session_state:
+        config = st.session_state.selected_configuration
+        details.append(f"⚙️ {config['name']}")
+    
+    if st.session_state.get('uploaded_df') is not None:
+        df = st.session_state.uploaded_df
+        filename = st.session_state.get('uploaded_file_name', 'Unknown')
+        display_name = filename[:20] + '...' if len(filename) > 20 else filename
+        details.append(f"📁 {display_name} ({len(df)} rows)")
+    
+    if st.session_state.get('validation_passed'):
+        details.append("✅ Validated")
+    elif st.session_state.get('uploaded_df') is not None:
+        details.append("⏳ Pending Validation")
+    
+    if details:
+        for detail in details:
+            st.caption(detail)
+    else:
+        st.info("No active session data")
+
+def _render_new_configuration_form(brokerage_name, db_manager):
+    """Render compact new configuration form"""
+    if 'config_form_state' not in st.session_state:
+        st.session_state.config_form_state = {
+            'config_name': '',
+            'config_description': '',
+            'api_base_url': 'https://api.prod.goaugment.com',
+            'api_key': ''
+        }
+    
+    # Compact form
+    config_name = st.text_input(
+        "Configuration name",
+        value=st.session_state.config_form_state['config_name'],
+        placeholder="e.g., Standard Mapping",
+        key="new_config_name_input"
+    )
+    
+    api_key = st.text_input(
+        "API Key",
+        value=st.session_state.config_form_state['api_key'],
+        type="password",
+        placeholder="Your API key",
+        key="new_config_api_key_input"
+    )
+    
+    # Update form state
+    st.session_state.config_form_state.update({
+        'config_name': config_name,
+        'api_key': api_key
+    })
+    
+    # Action buttons
+    col1, col2 = st.columns(2)
+    with col1:
+        if st.button("💾 Save", type="primary", use_container_width=True, key="save_config_btn"):
+            _handle_save_configuration(brokerage_name, db_manager)
+    
+    with col2:
+        if st.button("🔄 Reset", use_container_width=True, key="reset_config_btn"):
+            st.session_state.config_form_state = {
+                'config_name': '',
+                'config_description': '',
+                'api_base_url': 'https://api.prod.goaugment.com',
+                'api_key': ''
+            }
+            st.rerun()
+
+def _has_session_data():
+    """Check if there's relevant session data to show"""
+    return any(st.session_state.get(key) is not None for key in ['brokerage_name', 'selected_configuration', 'uploaded_df', 'field_mappings'])
+
+def _handle_save_configuration(brokerage_name, db_manager):
+    """Handle saving new configuration"""
+    form_state = st.session_state.config_form_state
+    
+    config_name = form_state['config_name'].strip()
+    config_description = form_state['config_description'].strip()
+    api_base_url = form_state['api_base_url'].strip()
+    api_key = form_state['api_key'].strip()
+    
+    if not config_name or not api_key:
+        st.error("Please provide both configuration name and API key")
+        return
+    
+    # Test API connection
+    with st.spinner("Testing API connection..."):
+        try:
+            from src.backend.api_client import LoadsAPIClient
+            client = LoadsAPIClient(api_base_url, api_key)
+            result = client.validate_connection()
+        
+            if result['success']:
+                # Save configuration to database with placeholder field mappings
+                try:
+                    api_credentials = {
+                        'base_url': api_base_url,
+                        'api_key': api_key
+                    }
+                    
+                    # Save to database - start with placeholder field mappings that indicate "pending"
+                    placeholder_mappings = {
+                        "_status": "pending_file_upload",
+                        "_created_at": str(datetime.now()),
+                        "_description": "Configuration created, awaiting file upload for field mapping"
+                    }
+                    
+                    config_id = db_manager.save_brokerage_configuration(
+                        brokerage_name=brokerage_name,
+                        configuration_name=config_name,
+                        field_mappings=placeholder_mappings,
+                        api_credentials=api_credentials,
+                        file_headers=None,
+                        description=config_description
+                    )
+                    
+                    # Save configuration info to session and switch to 'existing' mode
+                    saved_config = {
+                        'id': config_id,
+                        'name': config_name,
+                        'brokerage_name': brokerage_name,
+                        'configuration_name': config_name,
+                        'description': config_description,
+                        'api_credentials': api_credentials,
+                        'field_mappings': placeholder_mappings,
+                        'version': 1,
+                        'created_at': str(datetime.now()),
+                        'field_count': len(placeholder_mappings)
+                    }
+                    
+                    # Set as selected configuration (treat as existing now that it's saved)
+                    st.session_state.selected_configuration = saved_config
+                    st.session_state.api_credentials = api_credentials
+                    st.session_state.brokerage_name = brokerage_name
+                    st.session_state.configuration_type = 'existing'
+                    
+                    # Store the saved config name to auto-select it in sidebar
+                    st.session_state.auto_select_config = config_name
+                    
+                    # Clear new configuration since it's now saved
+                    if 'new_configuration' in st.session_state:
+                        del st.session_state['new_configuration']
+                    
+                    # Clear the form state
+                    st.session_state.config_form_state = {
+                        'config_name': '',
+                        'config_description': '',
+                        'api_base_url': 'https://api.prod.goaugment.com',
+                        'api_key': ''
+                    }
+                    
+                    st.success("✅ Configuration saved! Upload a file to continue.")
+                    
+                    # Trigger backup suggestion after configuration creation
+                    auto_backup_suggestion()
+                    
+                    st.rerun()
+                    
+                except Exception as db_error:
+                    st.error(f"❌ Failed to save configuration: {str(db_error)}")
+                    
+            else:
+                st.error(f"❌ API connection failed: {result['message']}")
+        except Exception as e:
+            st.error(f"❌ Failed to test connection: {str(e)}")
+
+def main_workflow(db_manager, data_processor):
+    """Modern streamlined workflow with enhanced UX and progressive disclosure"""
+    
+    # Check if configuration is ready
+    if 'brokerage_name' not in st.session_state:
+        st.info("👈 Please select or create a brokerage in the sidebar to continue")
+        return
+    
+    if 'api_credentials' not in st.session_state:
+        st.info("👈 Please configure your API credentials in the sidebar to continue")
+        return
+    
+    brokerage_name = st.session_state.brokerage_name
+    
+    # === 1. HEADER INTEGRATION & SPACING ===
+    # Clean, minimal header without redundant status buttons
+    st.markdown("### 📁 Upload Your Data")
+    
+    # Optional: Show compact status info below header if needed
+    if st.session_state.get('validation_passed'):
+        st.success("✅ Data validated and ready to process")
+    elif st.session_state.get('uploaded_df') is not None:
+        if st.session_state.get('field_mappings'):
+            # Check if we have real mappings
+            field_mappings = st.session_state.get('field_mappings', {})
+            has_real_mappings = any(not k.startswith('_') and v and v != 'Select column...' for k, v in field_mappings.items())
+            if has_real_mappings:
+                st.info("🔍 Ready to validate data mappings")
+            else:
+                st.info("🔗 Complete field mapping to continue")
+        # Note: Removed redundant mapping message - now only shown in expandable section
+    
+    # === 2. PROGRESS BAR ENHANCEMENT ===
+    # Enhanced progress with visual connections
+    # Determine current step based on session state (simplified and more reliable)
+    
+    # Step 4: Process & Results (only if validation explicitly passed)
+    if st.session_state.get('validation_passed') == True:
+        current_step = 4
+    
+    # Step 3: Validation & Save (only if we have real mappings AND file uploaded)
+    elif (st.session_state.get('uploaded_df') is not None and 
+          'field_mappings' in st.session_state):
+        field_mappings = st.session_state.get('field_mappings', {})
+        has_real_mappings = any(
+            not key.startswith('_') and 
+            value and 
+            value != 'Select column...' and 
+            value.strip() != ''
+            for key, value in field_mappings.items()
+        )
+        if has_real_mappings:
+            current_step = 3
+        else:
+            current_step = 2  # File uploaded but no real mappings yet
+    
+    # Step 2: Smart Mapping (file uploaded but no meaningful mappings)
+    elif st.session_state.get('uploaded_df') is not None:
+        current_step = 2
+    
+    # Step 1: File Upload (default - no file uploaded)
+    else:
+        current_step = 1
+    
+    _render_enhanced_progress(current_step)
+    
+    # === 3. FILE UPLOAD AREA REDESIGN ===
+    # Modern card-based upload with enhanced visual hierarchy
+    _render_modern_file_upload(db_manager, data_processor)
+    
+    # === 4. PROGRESSIVE DISCLOSURE ===
+    # Smart sections that expand based on workflow state
+    
+    # Field Mapping Section (only show if file uploaded)
+    if st.session_state.get('uploaded_df') is not None:
+        _render_smart_mapping_section(db_manager, data_processor)
+    
+    # Validation Section (only show if mappings exist)
+    if st.session_state.get('field_mappings'):
+        _render_validation_section(db_manager, data_processor)
+    
+    # Processing Section (only show if validation passed)
+    if st.session_state.get('validation_passed'):
+        _render_processing_section(db_manager, data_processor)
+    
+    # Database status monitoring
+    show_database_status()
+
+def _render_enhanced_progress(current_step):
+    """Enhanced progress bar with visual connections and animations"""
+    steps = [
+        {"num": 1, "label": "Upload", "icon": "📤"},
+        {"num": 2, "label": "Map", "icon": "🔗"},
+        {"num": 3, "label": "Validate", "icon": "✅"},
+        {"num": 4, "label": "Process", "icon": "🚀"}
+    ]
+    
+    st.markdown("""
+        <div style="
+            background: linear-gradient(135deg, #f8fafc 0%, #e2e8f0 100%);
+            border-radius: 0.5rem;
+            padding: 0.5rem;
+            margin: 0.5rem 0;
+            border: 1px solid #e2e8f0;
+        ">
+    """, unsafe_allow_html=True)
+    
+    cols = st.columns(len(steps))
+    for i, step in enumerate(steps):
+        with cols[i]:
+            is_active = step["num"] == current_step
+            is_completed = step["num"] < current_step
+            
+            if is_completed:
+                st.markdown(f"""
+                    <div style="text-align: center; color: #059669;">
+                        <div style="font-size: 1.2rem; margin-bottom: 0.25rem;">✅</div>
+                        <div style="font-size: 0.65rem; font-weight: 600; line-height: 1;">{step["label"]}</div>
+                    </div>
+                """, unsafe_allow_html=True)
+            elif is_active:
+                st.markdown(f"""
+                    <div style="text-align: center; color: #2563eb;">
+                        <div style="font-size: 1.2rem; margin-bottom: 0.25rem; animation: pulse 2s infinite;">{step["icon"]}</div>
+                        <div style="font-size: 0.65rem; font-weight: 600; color: #2563eb; line-height: 1;">{step["label"]}</div>
+                    </div>
+                """, unsafe_allow_html=True)
+            else:
+                st.markdown(f"""
+                    <div style="text-align: center; color: #9ca3af;">
+                        <div style="font-size: 1.2rem; margin-bottom: 0.25rem; opacity: 0.5;">{step["icon"]}</div>
+                        <div style="font-size: 0.65rem; line-height: 1;">{step["label"]}</div>
+                    </div>
+                """, unsafe_allow_html=True)
+    
+    st.markdown("</div>", unsafe_allow_html=True)
+
+def _render_modern_file_upload(db_manager, data_processor):
+    """Modern file upload with enhanced visual design"""
+    
+    # === 5. INFORMATION ARCHITECTURE ===
+    # Single source of truth with context-aware help
+    
+    with st.container():
+        st.markdown("""
+            <div style="
+                background: white;
+                border-radius: 0.5rem;
+                padding: 0.75rem;
+                border: 1px solid #e2e8f0;
+                margin: 0.25rem 0;
+                transition: all 0.3s ease;
+            ">
+        """, unsafe_allow_html=True)
+        
+        # Context-aware upload instructions
+        if st.session_state.get('uploaded_df') is not None:
+            # Compact file status display
+            filename = st.session_state.get('uploaded_file_name', 'Unknown')
+            record_count = len(st.session_state.uploaded_df)
+            file_size = st.session_state.get('file_size', 0)
+            
+            # Single line compact display
+            col1, col2, col3 = st.columns([2, 1, 1])
+            with col1:
+                st.markdown(f"**📄 {filename}** • {record_count:,} records")
+            with col2:
+                if st.button("📂 Change File", key="change_file_btn", use_container_width=True):
+                    # Clear file-related state
+                    keys_to_clear = ['uploaded_df', 'uploaded_file_name', 'file_headers', 'validation_passed', 'header_comparison', 'field_mappings']
+                    for key in keys_to_clear:
+                        if key in st.session_state:
+                            del st.session_state[key]
+                    st.rerun()
+            with col3:
+                # Show data preview toggle
+                if st.button("👀 Preview", key="preview_toggle_btn", use_container_width=True):
+                    st.session_state.show_preview = not st.session_state.get('show_preview', False)
+            
+            # Progressive disclosure - show preview only if requested
+            if st.session_state.get('show_preview', False):
+                create_data_preview_card(st.session_state.uploaded_df)
+        
+        else:
+            uploaded_file = st.file_uploader(
+                "Choose a file",
+                type=['csv', 'xlsx', 'xls'],
+                key="main_file_uploader",
+                help="Supported formats: CSV, Excel (.xlsx, .xls). Maximum size: 50MB"
+            )
+            
+            if uploaded_file:
+                try:
+                    # Process file upload
+                    with st.spinner("📖 Reading file..."):
+                        if uploaded_file.name.endswith('.csv'):
+                            df = pd.read_csv(uploaded_file)
+                        else:
+                            df = pd.read_excel(uploaded_file)
+                    
+                    # Normalize and store
+                    df = normalize_column_names(df)
+                    file_headers = list(df.columns)
+                    
+                    st.session_state.uploaded_df = df
+                    st.session_state.uploaded_file_name = uploaded_file.name
+                    st.session_state.file_headers = file_headers
+                    
+                    # Header validation with existing config
+                    _validate_headers_with_config(file_headers, db_manager)
+                    
+                    # Consolidated success message
+                    file_size = uploaded_file.size / 1024 / 1024
+                    st.success(f"✅ **{uploaded_file.name}** loaded successfully • {len(df):,} records • {file_size:.1f} MB")
+                    
+                    # Trigger backup suggestion for large files or important data
+                    if len(df) > 1000 or file_size > 5:
+                        st.info("📊 Large dataset uploaded - consider backing up your work!")
+                        auto_backup_suggestion()
+                    elif len(df) > 100:
+                        auto_backup_suggestion()
+                    
+                    st.rerun()
+                    
+                except Exception as e:
+                    st.error(f"❌ Error reading file: {str(e)}")
+        
+        st.markdown("</div>", unsafe_allow_html=True)
+
+def _validate_headers_with_config(file_headers, db_manager):
+    """Validate file headers against existing configuration"""
+    brokerage_name = st.session_state.brokerage_name
+    
+    if (st.session_state.get('configuration_type') == 'existing' and 
+        'selected_configuration' in st.session_state):
+        config = st.session_state.selected_configuration
+        
+        # Check if config has real mappings
+        field_mappings = config.get('field_mappings', {})
+        has_real_mappings = any(not key.startswith('_') for key in field_mappings.keys())
+        
+        if has_real_mappings:
+            # Validate headers against saved config
+            header_comparison = create_header_validation_interface(
+                file_headers, db_manager, brokerage_name, config['name']
+            )
+            st.session_state.header_comparison = header_comparison
+        else:
+            # Config exists but no real mappings - treat as new
+            st.session_state.header_comparison = {
+                'status': 'new_config',
+                'changes': [],
+                'missing': [],
+                'added': file_headers
+            }
+    else:
+        # New configuration
+        st.session_state.header_comparison = {
+            'status': 'new_config',
+            'changes': [],
+            'missing': [],
+            'added': file_headers
+        }
+
+def _render_smart_mapping_section(db_manager, data_processor):
+    """Smart mapping section with progressive disclosure"""
+    
+    with st.expander("🔗 **Field Mapping**", expanded=not st.session_state.get('field_mappings')):
+        st.caption("Map your CSV columns to API fields")
+        
+        df = st.session_state.uploaded_df
+        header_comparison = st.session_state.get('header_comparison', {})
+        
+        # Get existing configuration if applicable
+        existing_config = None
+        if (st.session_state.get('configuration_type') == 'existing' and 
+            'selected_configuration' in st.session_state):
+            config = st.session_state.selected_configuration
+            field_mappings = config.get('field_mappings', {})
+            has_real_mappings = any(not key.startswith('_') for key in field_mappings.keys())
+            
+            if has_real_mappings:
+                existing_config = config
+        
+        # Enhanced mapping interface
+        field_mappings = create_enhanced_mapping_with_validation(
+            df, existing_config, data_processor, header_comparison
+        )
+        
+        st.session_state.field_mappings = field_mappings
+        
+        # Progress indicator
+        api_schema = get_full_api_schema()
+        required_fields = {k: v for k, v in api_schema.items() if v.get('required', False)}
+        mapped_required = len([f for f in required_fields.keys() if f in field_mappings])
+        total_required = len(required_fields)
+        
+        progress = mapped_required / total_required if total_required > 0 else 0
+        st.progress(progress)
+        
+        if mapped_required >= total_required:
+            st.success(f"✅ All {mapped_required} required fields mapped!")
+        else:
+            st.info(f"📋 {mapped_required}/{total_required} required fields mapped")
+
+def _render_validation_section(db_manager, data_processor):
+    """Validation section with smart defaults"""
+    
+    # Only expand if there are validation issues
+    has_issues = st.session_state.get('validation_errors')
+    
+    with st.expander("✅ **Data Validation**", expanded=bool(has_issues)):
+        st.caption("Validate your data before processing")
+        
+        df = st.session_state.uploaded_df
+        field_mappings = st.session_state.field_mappings
+        file_headers = st.session_state.file_headers
+        
+        # Run validation
+        with st.spinner("🔍 Validating data..."):
+            try:
+                validation_errors = validate_mapping(df, field_mappings, data_processor)
+                st.session_state.validation_errors = validation_errors
+                
+                if validation_errors:
+                    can_proceed = create_validation_summary_card(validation_errors, len(df))
+                    show_validation_errors(validation_errors)
+                    
+                    col1, col2 = st.columns(2)
+                    with col1:
+                        if st.button("🔄 Fix Mapping", type="primary", key="fix_mapping_btn"):
+                            st.session_state.validation_errors = None
+                            st.info("💡 Adjust your field mappings above")
+                    
+                    with col2:
+                        if can_proceed and st.button("⚠️ Continue Anyway", key="continue_anyway_btn"):
+                            st.session_state.validation_passed = True
+                            st.rerun()
+                else:
+                    st.session_state.validation_passed = True
+                    st.success("✅ All data validated successfully!")
+                
+                # Save configuration
+                if st.session_state.get('validation_passed'):
+                    _save_configuration(db_manager, field_mappings, file_headers)
+                    
+                    # Trigger backup suggestion after configuration is saved
+                    auto_backup_suggestion()
+                    
+            except Exception as e:
+                st.error(f"❌ Validation failed: {str(e)}")
+
+def _render_processing_section(db_manager, data_processor):
+    """Processing section with enhanced UX"""
+    
+    with st.expander("🚀 **Process & Submit**", expanded=True):
+        st.caption("Process your data and submit to the API")
+        
+        df = st.session_state.uploaded_df
+        field_mappings = st.session_state.field_mappings
+        api_credentials = st.session_state.api_credentials
+        brokerage_name = st.session_state.brokerage_name
+        
+        # Summary metrics
+        col1, col2, col3 = st.columns(3)
+        with col1:
+            st.metric("Records", f"{len(df):,}")
+        with col2:
+            st.metric("Fields", len(field_mappings))
+        with col3:
+            st.metric("Status", "Ready ✅")
+        
+        # Process button
+        if st.button("🚀 Process Data", type="primary", key="process_btn", use_container_width=True):
+            try:
+                import uuid
+                session_id = str(uuid.uuid4())[:8]
+                
+                process_data_enhanced(
+                    df, field_mappings, api_credentials, brokerage_name, 
+                    data_processor, db_manager, session_id
+                )
+                
+                # Post-processing actions
+                col1, col2 = st.columns(2)
+                with col1:
+                    if st.button("🔄 Process Another", type="primary", key="process_another"):
+                        keys_to_clear = ['uploaded_df', 'uploaded_file_name', 'file_headers', 'validation_passed', 'header_comparison', 'field_mappings']
+                        for key in keys_to_clear:
+                            if key in st.session_state:
+                                del st.session_state[key]
+                        st.rerun()
+                
+                with col2:
+                    if st.button("🏠 Start Over", key="start_over"):
+                        for key in list(st.session_state.keys()):
+                            if key not in ['sidebar_state']:  # Keep sidebar state
+                                del st.session_state[key]
+                        st.rerun()
+                
+            except Exception as e:
+                st.error(f"❌ Processing failed: {str(e)}")
+
+def _save_configuration(db_manager, field_mappings, file_headers):
+    """Save configuration with field mappings"""
+    try:
+        config = st.session_state.selected_configuration
+        brokerage_name = st.session_state.brokerage_name
+        
+        db_manager.save_brokerage_configuration(
+            brokerage_name=brokerage_name,
+            configuration_name=config['name'],
+            field_mappings=field_mappings,
+            api_credentials=config['api_credentials'],
+            file_headers=file_headers,
+            description=config.get('description', '')
+        )
+        
+        # Update session state
+        st.session_state.selected_configuration['field_mappings'] = field_mappings
+        st.session_state.selected_configuration['field_count'] = len(field_mappings)
+        
+    except Exception as e:
+        st.error(f"❌ Failed to save configuration: {str(e)}")
+
+def process_data_enhanced(df, field_mappings, api_credentials, brokerage_name, data_processor, db_manager, session_id):
+    """Enhanced data processing with detailed tracking and error handling"""
+    
+    # Initialize progress tracking
+    total_steps = 6
+    current_step = 0
+    
+    # Create enhanced progress components
+    progress_container = st.container()
+    
+    with progress_container:
+        # Main progress bar
+        progress_bar = st.progress(0)
+        
+        # Status and timing information
+        col1, col2, col3 = st.columns(3)
+        with col1:
+            status_text = st.empty()
+        with col2:
+            time_text = st.empty()
+        with col3:
+            records_text = st.empty()
+        
+        # Detailed step indicator
+        step_indicator = st.empty()
+        
+        # Start timing
+        import time
+        start_time = time.time()
+        
+        def update_progress(step_name, step_number, details=""):
+            nonlocal current_step
+            current_step = step_number
+            progress_percent = int((current_step / total_steps) * 100)
+            progress_bar.progress(progress_percent)
+            
+            # Update status
+            status_text.text(f"🔄 {step_name}")
+            
+            # Update timing
+            elapsed = time.time() - start_time
+            time_text.text(f"⏱️ {elapsed:.1f}s elapsed")
+            
+            # Update step indicator
+            step_indicator.markdown(f"**Step {current_step}/{total_steps}:** {step_name}")
+            if details:
+                step_indicator.caption(details)
+        
+        # Update record counter
+        records_text.text(f"📊 {len(df)} records")
+    
+    try:
+        # Step 1: Pre-flight validation
+        update_progress("Pre-flight validation", 1, "Validating inputs and connections...")
+        
+        # Validate API credentials
+        client = LoadsAPIClient(api_credentials['base_url'], api_credentials['api_key'])
+        connection_test = client.validate_connection()
+        if not connection_test['success']:
+            st.error(f"❌ API connection failed: {connection_test['message']}")
+            return
+            
+        # Step 2: Apply field mappings
+        update_progress("Applying field mappings", 2, f"Mapping {len(field_mappings)} fields to {len(df)} records...")
+        
+        with st.spinner("Processing field mappings..."):
+            mapped_df, mapping_errors = data_processor.apply_mapping(df, field_mappings)
+        
+        if mapping_errors:
+            st.error("❌ Mapping failed:")
+            for error in mapping_errors:
+                st.error(f"• {error}")
+            return
+        
+        # Step 3: Data validation
+        update_progress("Validating data", 3, "Checking data quality and format compliance...")
+        
+        with st.spinner("Validating data format and requirements..."):
+            validated_df, validation_errors = data_processor.validate_data(mapped_df, get_full_api_schema())
+        
+        detailed_errors = []
+        if validation_errors:
+            st.warning(f"⚠️ Found {len(validation_errors)} validation issues (processing will continue)")
+            # Convert validation errors to detailed format for database storage
+            for error in validation_errors:
+                detailed_errors.append({
+                    'row_number': error.get('row', 1),
+                    'field_name': 'general',
+                    'error_type': 'validation',
+                    'error_message': str(error),
+                    'suggested_fix': 'Review data format and field mappings',
+                    'original_value': '',
+                    'expected_format': 'API compliant format'
+                })
+        
+        # Step 4: Format for API
+        update_progress("Formatting for API", 4, "Converting data to API-compatible format...")
+        
+        with st.spinner("Formatting data for API submission..."):
+            api_payloads = data_processor.format_for_api(validated_df)
+        
+        # Step 5: Send to API with enhanced progress
+        update_progress("Sending to API", 5, f"Submitting {len(api_payloads)} loads to the API...")
+        
+        # Enhanced API submission with progress tracking
+        api_progress_bar = st.progress(0)
+        api_status = st.empty()
+        
+        results = []
+        successful_count = 0
+        failed_count = 0
+        
+        for i, payload in enumerate(api_payloads):
+            # Update API progress
+            api_progress = int((i / len(api_payloads)) * 100)
+            api_progress_bar.progress(api_progress)
+            api_status.text(f"Processing load {i+1}/{len(api_payloads)} (✅ {successful_count} | ❌ {failed_count})")
+            
+            # Submit individual load
+            result = client.create_load(payload)
+            result['row_index'] = i + 1
+            results.append(result)
+            
+            # Update counters
+            if result.get('success', False):
+                successful_count += 1
+            else:
+                failed_count += 1
+                # Add detailed error for failed records
+                detailed_errors.append({
+                    'row_number': i + 1,
+                    'field_name': 'api_submission',
+                    'error_type': 'api_error',
+                    'error_message': result.get('error', 'Unknown API error'),
+                    'suggested_fix': 'Review API response and data format',
+                    'original_value': str(payload),
+                    'expected_format': 'Valid API payload'
+                })
+            
+            # Small delay for rate limiting
+            time.sleep(0.05)
+        
+        # Clear API progress indicators
+        api_progress_bar.empty()
+        api_status.empty()
+        
+        # Step 6: Process and save results
+        update_progress("Saving results", 6, "Processing results and saving to database...")
+        
+        processing_time = time.time() - start_time
+        
+        with st.spinner("Saving results to database..."):
+            # Save enhanced upload history
+            configuration_name = st.session_state.get('selected_configuration', {}).get('name') or st.session_state.get('new_configuration', {}).get('configuration_name', 'Unknown')
+            
+            upload_id = db_manager.save_upload_history_enhanced(
+                brokerage_name=brokerage_name,
+                configuration_name=configuration_name,
+                filename=st.session_state.uploaded_file_name,
+                total_records=len(df),
+                successful_records=successful_count,
+                failed_records=failed_count,
+                error_log=json.dumps([r for r in results if not r.get('success', False)]),
+                processing_time=processing_time,
+                file_headers=st.session_state.file_headers,
+                session_id=session_id
+            )
+            
+            # Save detailed errors for troubleshooting
+            if detailed_errors:
+                db_manager.save_processing_errors(upload_id, detailed_errors)
+        
+        # Final progress update
+        progress_bar.progress(100)
+        status_text.text("✅ Processing complete!")
+        
+        # Clear progress indicators
+        time.sleep(1)
+        progress_bar.empty()
+        status_text.empty()
+        time_text.empty()
+        records_text.empty()
+        step_indicator.empty()
+        
+        # Single consolidated success message with all key information
+        success_rate = (successful_count / len(df)) * 100 if len(df) > 0 else 0
+        
+        if success_rate == 100:
+            st.success(f"🎉 Processing Complete! All {len(df)} records processed successfully in {processing_time:.1f}s")
+        elif success_rate >= 90:
+            st.warning(f"⚠️ Processing mostly successful: {successful_count}/{len(df)} records processed ({success_rate:.0f}% success) in {processing_time:.1f}s")
+        else:
+            st.error(f"❌ Processing issues: Only {successful_count}/{len(df)} records successful ({success_rate:.0f}%) in {processing_time:.1f}s")
+        
+        # Compact metrics in a single row
+        col1, col2, col3, col4 = st.columns(4)
+        with col1:
+            st.metric("Total Records", len(df))
+        with col2:
+            st.metric("Successful", successful_count, f"{success_rate:.0f}%")
+        with col3:
+            st.metric("Failed", failed_count, f"{100-success_rate:.0f}%")
+        with col4:
+            st.metric("API Status", "augment-br..." if 'api_credentials' in locals() else "Ready ✅")
+        
+        # Session info in compact format
+        st.info(f"⏱️ Total processing time: {processing_time:.1f} seconds (0.35s per record) • 📋 Session ID: {session_id} | Configuration: {configuration_name}")
+        
+        # Suggest backup after successful processing
+        auto_backup_suggestion()
+        
+        # Failed records details (only if there are failures)
+        if failed_count > 0:
+            with st.expander(f"❌ Failed Records Details ({failed_count} records)"):
+                failed_records = []
+                for r in results:
+                    if not r.get('success', False):
+                        failed_records.append({
+                            'Row': r.get('row_index', 'Unknown'),
+                            'Error': r.get('error', 'Unknown error'),
+                            'Status Code': r.get('status_code', 'N/A')
+                        })
+                
+                if failed_records:
+                    failed_df = pd.DataFrame(failed_records)
+                    st.dataframe(failed_df, use_container_width=True, hide_index=True)
+                    
+                    # Download failed records
+                    csv_data = failed_df.to_csv(index=False)
+                    st.download_button(
+                        label="📥 Download Failed Records Report",
+                        data=csv_data,
+                        file_name=f"failed_records_{session_id}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
+                        mime="text/csv"
+                    )
+        
+        # Download successful records (only if there were some failures)
+        if successful_count > 0 and successful_count < len(df):
+            with st.expander("📥 Download Options"):
+                successful_indices = [r.get('row_index', 1) - 1 for r in results if r.get('success', False)]
+                successful_df = df.iloc[successful_indices]
+                csv_data = successful_df.to_csv(index=False)
+                st.download_button(
+                    label="📥 Download Successful Records Only",
+                    data=csv_data,
+                    file_name=f"successful_records_{session_id}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
+                    mime="text/csv"
+                )
+        
+    except Exception as e:
+        # Enhanced error handling
+        st.error(f"❌ Processing failed: {str(e)}")
+        logger.error(f"Processing error: {str(e)}")
+        
+        # Clear progress indicators on error
+        try:
+            progress_bar.empty()
+            status_text.empty()
+            time_text.empty()
+            records_text.empty()
+            step_indicator.empty()
+        except:
+            pass
+
+def get_smart_mappings(df, data_processor):
+    """Get smart field mapping suggestions"""
+    try:
+        api_schema = get_full_api_schema()
+        return data_processor.suggest_mapping(list(df.columns), api_schema, df)
+    except Exception as e:
+        logger.warning(f"Smart mapping failed: {str(e)}")
+        return {}
+
+def show_mapping_suggestions(suggested_mappings, api_schema, df):
+    """Show suggested field mappings with confidence scores"""
+    if not suggested_mappings:
+        st.info("No automatic mappings were suggested. Please map fields manually.")
+        return {}
+    
+    st.subheader("🧠 Smart Mapping Suggestions")
+    st.write("Review and adjust the suggested field mappings:")
+    
+    updated_mappings = {}
+    
+    for csv_field, api_field in suggested_mappings.items():
+        if csv_field in df.columns and api_field in api_schema:
+            # Get sample data for preview
+            sample_data = df[csv_field].dropna().head(3).tolist()
+            
+            # Create mapping card
+            create_field_mapping_card(csv_field, api_field, confidence=0.8, sample_data=sample_data)
+            
+            # Add to updated mappings
+            updated_mappings[api_field] = csv_field
+    
+    return updated_mappings
+
+def validate_api_input(api_key: str, base_url: str) -> tuple[bool, str]:
+    """Validate API input parameters"""
+    if not api_key or len(api_key.strip()) < 10:
+        return False, "API key must be at least 10 characters long"
+    
+    if not base_url or not base_url.startswith(('http://', 'https://')):
+        return False, "Base URL must start with http:// or https://"
+    
+    # Additional validation
+    if 'localhost' in base_url.lower() or '127.0.0.1' in base_url:
+        return False, "Cannot connect to localhost URLs"
+    
+    return True, "Valid"
+
+def process_data(df, field_mappings, api_credentials, customer_name, data_processor, db_manager):
+    """Process the data with enhanced progress indicators"""
+    
+    # Initialize progress tracking
+    total_steps = 6
+    current_step = 0
+    
+    # Create enhanced progress components
+    progress_container = st.container()
+    
+    with progress_container:
+        # Main progress bar
+        progress_bar = st.progress(0)
+        
+        # Status and timing information
+        col1, col2, col3 = st.columns(3)
+        with col1:
+            status_text = st.empty()
+        with col2:
+            time_text = st.empty()
+        with col3:
+            records_text = st.empty()
+        
+        # Detailed step indicator
+        step_indicator = st.empty()
+        
+        # Start timing
+        import time
+        start_time = time.time()
+        
+        def update_progress(step_name, step_number, details=""):
+            nonlocal current_step
+            current_step = step_number
+            progress_percent = int((current_step / total_steps) * 100)
+            progress_bar.progress(progress_percent)
+            
+            # Update status
+            status_text.text(f"🔄 {step_name}")
+            
+            # Update timing
+            elapsed = time.time() - start_time
+            time_text.text(f"⏱️ {elapsed:.1f}s elapsed")
+            
+            # Update step indicator
+            step_indicator.markdown(f"**Step {current_step}/{total_steps}:** {step_name}")
+            if details:
+                step_indicator.caption(details)
+        
+        # Update record counter
+        records_text.text(f"📊 {len(df)} records")
+    
+    try:
+        # Step 1: Pre-flight validation
+        update_progress("Pre-flight validation", 1, "Validating inputs and connections...")
+        
+        # Validate API credentials
+        client = LoadsAPIClient(api_credentials['base_url'], api_credentials['api_key'])
+        connection_test = client.validate_connection()
+        if not connection_test['success']:
+            st.error(f"❌ API connection failed: {connection_test['message']}")
+            return
+            
+        # Step 2: Apply field mappings
+        update_progress("Applying field mappings", 2, f"Mapping {len(field_mappings)} fields to {len(df)} records...")
+        
+        with st.spinner("Processing field mappings..."):
+            mapped_df, mapping_errors = data_processor.apply_mapping(df, field_mappings)
+        
+        if mapping_errors:
+            st.error("❌ Mapping failed:")
+            for error in mapping_errors:
+                st.error(f"• {error}")
+            return
+        
+        # Step 3: Data validation
+        update_progress("Validating data", 3, "Checking data quality and format compliance...")
+        
+        with st.spinner("Validating data format and requirements..."):
+            validated_df, validation_errors = data_processor.validate_data(mapped_df, get_full_api_schema())
+        
+        return validation_errors
+        
+    except Exception as e:
+        return [{'row': 1, 'errors': [f"Validation error: {str(e)}"]}]
+
+def show_validation_errors(validation_errors):
+    """Display validation errors in a user-friendly format"""
+    if not validation_errors:
+        return
+    
+    st.markdown("### ⚠️ Validation Issues Found")
+    
+    # Group errors by type for better display
+    error_summary = {}
+    for error in validation_errors:
+        error_type = error.get('type', 'general')
+        if error_type not in error_summary:
+            error_summary[error_type] = []
+        error_summary[error_type].append(error)
+    
+    # Display errors by type
+    for error_type, errors in error_summary.items():
+        with st.expander(f"{error_type.title()} Errors ({len(errors)} issues)", expanded=True):
+            for i, error in enumerate(errors[:10]):  # Show first 10 errors
+                row_info = f"Row {error.get('row', 'Unknown')}" if error.get('row') else "General"
+                error_text = ', '.join(error.get('errors', ['Unknown error']))
+                st.markdown(f"**{row_info}:** {error_text}")
+            
+            if len(errors) > 10:
+                st.info(f"... and {len(errors) - 10} more {error_type} errors")
+
+def _make_error_user_friendly(error_str):
+    """Convert technical error messages to user-friendly ones"""
+    
+    # Field name mappings for user-friendly descriptions
+    field_mappings = {
+        'load.loadNumber': 'Load Number',
+        'load.mode': 'Transportation Mode (FTL/LTL)',
+        'load.rateType': 'Rate Type (Spot/Contract)',
+        'load.status': 'Load Status',
+        'load.route.0.address.street1': 'Pickup Address',
+        'load.route.0.address.city': 'Pickup City',
+        'load.route.0.address.stateOrProvince': 'Pickup State',
+        'load.route.0.address.postalCode': 'Pickup ZIP Code',
+        'load.route.0.address.country': 'Pickup Country',
+        'load.route.0.expectedArrivalWindowStart': 'Pickup Date/Time',
+        'load.route.0.expectedArrivalWindowEnd': 'Pickup Window End',
+        'load.route.1.address.street1': 'Delivery Address',
+        'load.route.1.address.city': 'Delivery City',
+        'load.route.1.address.stateOrProvince': 'Delivery State',
+        'load.route.1.address.postalCode': 'Delivery ZIP Code',
+        'load.route.1.expectedArrivalWindowStart': 'Delivery Date/Time',
+        'customer.customerId': 'Customer ID',
+        'customer.name': 'Customer Name',
+        'load.items.0.quantity': 'Item Quantity',
+        'load.items.0.totalWeightLbs': 'Total Weight (lbs)',
+        'bidCriteria.targetCostUsd': 'Target Cost ($)'
+    }
+    
+    # Replace technical field names with user-friendly ones
+    user_friendly = error_str
+    for technical_name, friendly_name in field_mappings.items():
+        if technical_name in user_friendly:
+            user_friendly = user_friendly.replace(technical_name, friendly_name)
+    
+    # Make other improvements
+    user_friendly = user_friendly.replace("Missing required field:", "Missing:")
+    user_friendly = user_friendly.replace("Invalid value", "Invalid value in")
+    user_friendly = user_friendly.replace("Valid values:", "Accepted values:")
+    
+    return user_friendly
+
+# Settings and history functionality integrated into main workflow and sidebar
+
+def get_company_list(db_manager):
+    """Get list of companies that have upload history"""
+    try:
+        # Return empty list for now - this is not used in the simplified workflow
+        return []
+    except Exception as e:
+        logger.error(f"Failed to get company list: {str(e)}")
+        return []
+
+def render_database_management_section():
+    """Add to sidebar for database backup/restore"""
+    
+    st.markdown("---")
+    st.markdown("**💾 Database Management**")
+    
+    # Check if database has data
+    from src.backend.database import DatabaseManager
+    db_manager = DatabaseManager()
+    stats = db_manager.get_database_stats()
+    
+    if stats['customer_mappings'] > 0 or stats['upload_history'] > 0:
+        # Database has data - show backup option
+        st.caption(f"📊 {stats['customer_mappings']} configs, {stats['upload_history']} uploads")
+        
+        if st.button("📥 Download Backup", help="Save current database"):
+            backup_data = create_database_backup()
+            current_time = datetime.now().strftime("%Y%m%d_%H%M%S")
+            st.download_button(
+                label="💾 Save Database Backup",
+                data=backup_data,
+                file_name=f"ff2api_backup_{current_time}.json",
+                mime="application/json"
+            )
+            # Track backup creation time
+            st.session_state.last_backup_time = datetime.now()
+            st.success("✅ Backup ready for download!")
+    else:
+        # Empty database - show restore option
+        st.warning("📭 Database is empty")
+        uploaded_backup = st.file_uploader(
+            "📤 Restore from backup", 
+            type=['json'],
+            help="Upload a previous database backup"
+        )
+        
+        if uploaded_backup:
+            if st.button("🔄 Restore Database"):
+                try:
+                    restore_result = restore_database_from_backup(uploaded_backup)
+                    if restore_result['success']:
+                        st.success("✅ Database restored successfully!")
+                        st.rerun()
+                    else:
+                        st.error(f"❌ Restore failed: {restore_result['error']}")
+                except Exception as e:
+                    st.error(f"❌ Restore error: {str(e)}")
+
+def create_database_backup():
+    """Create comprehensive database backup"""
+    from src.backend.database import DatabaseManager
+    db_manager = DatabaseManager()
+    
+    backup_data = {
+        'backup_info': {
+            'created_at': datetime.now().isoformat(),
+            'version': '1.0',
+            'app_version': 'FF2API v1.0'
+        },
+        'brokerage_configurations': [],
+        'upload_history': [],
+        'processing_errors': []
+    }
+    
+    # Export all brokerage configurations
+    brokerages = db_manager.get_all_brokerages()
+    for brokerage in brokerages:
+        configs = db_manager.get_brokerage_configurations(brokerage['name'])
+        for config in configs:
+            # Note: Export encrypted credentials for restore
+            backup_data['brokerage_configurations'].append({
+                'brokerage_name': brokerage['name'],
+                'configuration_name': config['name'],
+                'field_mappings': config['field_mappings'],
+                'api_credentials': config['api_credentials'],  # Will be re-encrypted on restore
+                'created_at': config['created_at'],
+                'updated_at': config['updated_at'],
+                'description': config.get('description', '')
+            })
+    
+    # Export upload history (last 100 records to keep size manageable)
+    upload_history = db_manager.get_upload_history(limit=100)
+    for record in upload_history:
+        backup_data['upload_history'].append({
+            'brokerage_name': record[1],
+            'filename': record[3],
+            'total_records': record[4],
+            'successful_records': record[5],
+            'failed_records': record[6],
+            'upload_timestamp': record[11] if len(record) > 11 else record[7]
+        })
+    
+    return json.dumps(backup_data, indent=2)
+
+def restore_database_from_backup(uploaded_file):
+    """Restore database from uploaded backup"""
+    try:
+        backup_data = json.loads(uploaded_file.read())
+        
+        # Validate backup format
+        required_keys = ['backup_info', 'brokerage_configurations', 'upload_history']
+        if not all(key in backup_data for key in required_keys):
+            return {'success': False, 'error': 'Invalid backup file format'}
+        
+        from src.backend.database import DatabaseManager
+        db_manager = DatabaseManager()
+        
+        # Restore configurations
+        restored_configs = 0
+        for config in backup_data['brokerage_configurations']:
+            try:
+                config_id = db_manager.save_brokerage_configuration(
+                    brokerage_name=config['brokerage_name'],
+                    configuration_name=config['configuration_name'],
+                    field_mappings=config['field_mappings'],
+                    api_credentials=config['api_credentials'],
+                    description=config.get('description', '')
+                )
+                restored_configs += 1
+            except Exception as e:
+                # Log but continue with other configs
+                logger.warning(f"Failed to restore config {config['configuration_name']}: {e}")
+        
+        # Restore upload history
+        restored_history = 0
+        for record in backup_data['upload_history']:
+            try:
+                db_manager.save_upload_history_enhanced(
+                    brokerage_name=record['brokerage_name'],
+                    configuration_name=record.get('configuration_name', 'Unknown'),
+                    filename=record['filename'],
+                    total_records=record['total_records'],
+                    successful_records=record['successful_records'],
+                    failed_records=record['failed_records'],
+                    error_log=None,
+                    processing_time=0,
+                    file_headers=None,
+                    session_id=f"restored_{datetime.now().isoformat()}"
+                )
+                restored_history += 1
+            except Exception as e:
+                logger.warning(f"Failed to restore upload record {record['filename']}: {e}")
+        
+        return {
+            'success': True,
+            'configs_restored': restored_configs,
+            'history_restored': restored_history
+        }
+        
+    except json.JSONDecodeError:
+        return {'success': False, 'error': 'Invalid JSON format'}
+    except Exception as e:
+        return {'success': False, 'error': str(e)}
+
+def show_database_status():
+    """Show database health and recommendations with enhanced monitoring"""
+    from src.backend.database import DatabaseManager
+    db_manager = DatabaseManager()
+    stats = db_manager.get_database_stats()
+    
+    # Calculate database age (time since container start)
+    container_start_time = get_container_start_time()
+    
+    if container_start_time:
+        hours_running = (datetime.now() - container_start_time).total_seconds() / 3600
+        
+        # Enhanced container age warnings with progressive severity
+        if hours_running > 168:  # 7 days
+            st.error(f"🚨 CRITICAL: Container running {hours_running:.1f} hours ({hours_running/24:.1f} days). Data loss risk is HIGH!")
+            st.error("⚠️ Download backup immediately before container restart!")
+        elif hours_running > 72:  # 3 days
+            st.warning(f"⚠️ HIGH RISK: Container running {hours_running:.1f} hours ({hours_running/24:.1f} days). Download backup now!")
+        elif hours_running > 24:  # 1 day
+            st.info(f"⏰ Container running {hours_running:.1f} hours. Consider downloading backup.")
+        elif hours_running > 12:  # 12 hours
+            st.caption(f"✅ Container stable ({hours_running:.1f} hours running)")
+    
+    # Enhanced backup recommendations based on data volume
+    total_data_points = stats['customer_mappings'] + stats['upload_history']
+    
+    if total_data_points > 50:
+        st.error("💾 URGENT: Large dataset detected. Download backup before any major operations!")
+    elif total_data_points > 20:
+        st.warning("💡 RECOMMENDED: Regular backup suggested for data safety")
+    elif total_data_points > 5:
+        st.info("💡 TIP: Consider downloading backup to preserve your configurations")
+    
+    # Show compact database metrics
+    if total_data_points > 0:
+        col1, col2, col3 = st.columns(3)
+        with col1:
+            st.metric("📊 Configs", stats['customer_mappings'])
+        with col2:
+            st.metric("📤 Uploads", stats['upload_history'])
+        with col3:
+            health_icon = "🟢" if hours_running < 24 else "🟡" if hours_running < 72 else "🔴"
+            st.metric("🏥 Health", f"{health_icon} {hours_running:.1f}h")
+    
+    # Ephemeral storage reminder
+    if total_data_points > 0:
+        st.caption("⚠️ Data stored in ephemeral container - will be lost on restart")
+        
+        # Show last backup info if available
+        if 'last_backup_time' in st.session_state:
+            time_since_backup = datetime.now() - st.session_state.last_backup_time
+            hours_since_backup = time_since_backup.total_seconds() / 3600
+            
+            if hours_since_backup > 24:
+                st.warning(f"⏰ Last backup: {hours_since_backup:.1f} hours ago")
+            else:
+                st.caption(f"💾 Last backup: {hours_since_backup:.1f} hours ago")
+
+def get_container_start_time():
+    """Estimate container start time based on app initialization"""
+    # Store in session state when app first loads
+    if 'app_start_time' not in st.session_state:
+        st.session_state.app_start_time = datetime.now()
+    return st.session_state.app_start_time
+
+def check_critical_backup_needs(db_manager):
+    """Check for critical backup needs at app startup"""
+    try:
+        stats = db_manager.get_database_stats()
+        total_data_points = stats['customer_mappings'] + stats['upload_history']
+        
+        # Only show critical warnings if there's significant data
+        if total_data_points > 0:
+            container_start_time = get_container_start_time()
+            if container_start_time:
+                hours_running = (datetime.now() - container_start_time).total_seconds() / 3600
+                
+                # Show critical backup warning at top of app
+                if hours_running > 168:  # 7 days
+                    st.error("🚨 **CRITICAL**: Container running for 7+ days. Data loss imminent! Download backup immediately.")
+                elif hours_running > 72:  # 3 days
+                    st.warning("⚠️ **HIGH RISK**: Container running for 3+ days. Download backup before continuing.")
+                elif hours_running > 48:  # 2 days
+                    st.info("⏰ **REMINDER**: Container running for 2+ days. Consider downloading backup soon.")
+                    
+                # Check for large datasets without recent backups
+                if total_data_points > 50:
+                    last_backup_time = st.session_state.get('last_backup_time')
+                    if not last_backup_time or (datetime.now() - last_backup_time).total_seconds() > 86400:  # 24 hours
+                        st.warning("💾 **BACKUP RECOMMENDED**: Large dataset detected. Download backup to prevent data loss.")
+    except Exception as e:
+        # Don't let backup checks break the app
+        pass
+
+def auto_backup_suggestion():
+    """Suggest backup after significant operations with intelligent timing"""
+    # Track operations that warrant backup
+    if 'significant_operations' not in st.session_state:
+        st.session_state.significant_operations = 0
+    
+    st.session_state.significant_operations += 1
+    
+    # Check time since last backup
+    last_backup_time = st.session_state.get('last_backup_time')
+    hours_since_backup = 999  # Default to high value if no backup
+    
+    if last_backup_time:
+        hours_since_backup = (datetime.now() - last_backup_time).total_seconds() / 3600
+    
+    # Get container age for risk assessment
+    container_start_time = get_container_start_time()
+    hours_running = 0
+    if container_start_time:
+        hours_running = (datetime.now() - container_start_time).total_seconds() / 3600
+    
+    # Calculate database stats for risk assessment
+    from src.backend.database import DatabaseManager
+    db_manager = DatabaseManager()
+    stats = db_manager.get_database_stats()
+    total_data_points = stats['customer_mappings'] + stats['upload_history']
+    
+    # Smart backup suggestions based on multiple factors
+    suggestion_triggered = False
+    
+    # Critical scenarios - always suggest backup
+    if hours_running > 72 and hours_since_backup > 12:
+        st.error("🚨 URGENT: Container running for 3+ days. Download backup immediately!")
+        suggestion_triggered = True
+    elif total_data_points > 20 and hours_since_backup > 24:
+        st.warning("⚠️ Large dataset + 24h since backup. Download backup now!")
+        suggestion_triggered = True
+    elif hours_running > 24 and hours_since_backup > 12:
+        st.info("💾 Container stability risk. Consider downloading backup.")
+        suggestion_triggered = True
+    
+    # Regular operation-based suggestions
+    if not suggestion_triggered:
+        # Suggest backup every 5 operations if no recent backup
+        if st.session_state.significant_operations % 5 == 0 and hours_since_backup > 6:
+            st.info("💡 Tip: Download database backup to preserve your recent work")
+        # Suggest backup every 10 operations normally
+        elif st.session_state.significant_operations % 10 == 0:
+            st.caption("💾 Consider downloading a backup to preserve your work")
+    
+    # Show backup shortcut if critical
+    if hours_running > 72 or (total_data_points > 20 and hours_since_backup > 24):
+        if st.button("📥 Quick Backup", key="quick_backup_urgent", type="primary"):
+            backup_data = create_database_backup()
+            current_time = datetime.now().strftime("%Y%m%d_%H%M%S")
+            st.download_button(
+                label="💾 Download Emergency Backup",
+                data=backup_data,
+                file_name=f"ff2api_emergency_backup_{current_time}.json",
+                mime="application/json",
+                key="emergency_backup_download"
+            )
+            st.session_state.last_backup_time = datetime.now()
+            st.success("✅ Emergency backup ready!")
+
+if __name__ == "__main__":
+    main() 

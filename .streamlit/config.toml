@@ -1,0 +1,42 @@
+[global]
+# Application settings
+developmentMode = false
+logLevel = "warning"
+showWarningOnDirectExecution = false
+
+[server]
+# Server configuration
+headless = true
+enableCORS = false
+enableXsrfProtection = true
+maxUploadSize = 200
+maxMessageSize = 200
+enableWebsocketCompression = true
+runOnSave = false
+allowRunOnSave = false
+port = 8501
+
+[browser]
+# Browser settings
+serverAddress = "localhost"
+gatherUsageStats = false
+showErrorDetails = false
+
+[theme]
+# Application theme
+primaryColor = "#3b82f6"
+backgroundColor = "#ffffff"
+secondaryBackgroundColor = "#f8fafc"
+textColor = "#1e293b"
+font = "sans serif"
+
+[client]
+# Client settings
+caching = true
+displayEnabled = true
+showErrorDetails = false
+
+[logger]
+# Logging configuration
+level = "warning"
+messageFormat = "%(asctime)s - %(name)s - %(levelname)s - %(message)s" 

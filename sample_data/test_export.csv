@@ -1,0 +1,6 @@
+﻿load.loadNumber,,load.mode,load.rateType,load.status,load.route[0].sequence,load.route[0].stopActivity,load.route[0].address.street1,load.route[0].address.city,load.route[0].address.stateOrProvince,load.route[0].address.postalCode,load.route[0].address.country,load.route[0].expectedArrivalWindowStart,load.route[0].expectedArrivalWindowEnd,load.items[0].quantity,load.items[0].totalWeightLbs,customer.customerId,customer.name
+LOAD1000,0,FTL,CONTRACT,DRAFT,1,PICKUP,1877 Erik Flats,Carrburgh,ND,83293,US,2025-08-01T08:00:00Z,2025-08-01T10:00:00Z,2,515,cust-0001,Ramirez-Mendez
+LOAD1001,1,FTL,SPOT,DRAFT,1,PICKUP,20616 Mccoy Mount,North Zachary,MO,83401,US,2025-08-02T08:00:00Z,2025-08-02T10:00:00Z,1,918,cust-0002,Williams-Mcneil
+LOAD1002,2,LTL,SPOT,DRAFT,1,PICKUP,7427 Barnes Forge,Laurenborough,DE,48915,US,2025-08-03T08:00:00Z,2025-08-03T10:00:00Z,7,1957,cust-0003,Boyd-Hill
+LOAD1003,3,FTL,CONTRACT,DRAFT,1,PICKUP,2057 Jennifer Meadows,Kathyhaven,MI,45304,US,2025-08-04T08:00:00Z,2025-08-04T10:00:00Z,1,692,cust-0004,Winters-Blevins
+LOAD1004,4,FTL,SPOT,DRAFT,1,PICKUP,2343 Winters Locks Suite 953,North Christopher,VA,20115,US,2025-08-05T08:00:00Z,2025-08-05T10:00:00Z,7,1020,cust-0005,Lopez-Harris
