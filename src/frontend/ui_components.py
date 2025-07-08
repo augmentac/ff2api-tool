@@ -1640,6 +1640,10 @@ def create_learning_enhanced_mapping_interface(df, existing_mappings, data_proce
     if 'field_rendering_guard' in st.session_state:
         st.session_state.field_rendering_guard.clear()
     
+    # Clear global widget keys to prevent stale key collisions
+    if 'global_widget_keys' in st.session_state:
+        st.session_state.global_widget_keys.clear()
+    
     # Get the API schema
     api_schema = get_full_api_schema()
     
@@ -1757,19 +1761,32 @@ def create_learning_enhanced_mapping_interface(df, existing_mappings, data_proce
         # Optional Fields Tab
         st.markdown("### 📄 Optional Fields (Enhance your data)")
         
-        # Group optional fields by category
+        # Group optional fields by category with priority-based assignment to prevent duplicates
+        processed_fields = set()
         categories = {
-            "📍 Location Details": [f for f in optional_fields.keys() if 'address' in f or 'route' in f],
-            "📦 Load Information": [f for f in optional_fields.keys() if 'items' in f or 'equipment' in f or 'weight' in f],
-            "💰 Pricing & Bids": [f for f in optional_fields.keys() if 'bid' in f.lower() or 'cost' in f.lower() or 'rate' in f.lower()],
-            "👥 Contacts & Carriers": [f for f in optional_fields.keys() if 'contact' in f or 'carrier' in f or 'driver' in f],
-            "📋 Other Fields": [f for f in optional_fields.keys() if f not in [item for sublist in [
-                [f for f in optional_fields.keys() if 'address' in f or 'route' in f],
-                [f for f in optional_fields.keys() if 'items' in f or 'equipment' in f or 'weight' in f],
-                [f for f in optional_fields.keys() if 'bid' in f.lower() or 'cost' in f.lower() or 'rate' in f.lower()],
-                [f for f in optional_fields.keys() if 'contact' in f or 'carrier' in f or 'driver' in f]
-            ] for item in sublist]]
+            "💰 Pricing & Bids": [],
+            "📦 Load Information": [],
+            "📍 Location Details": [],
+            "👥 Contacts & Carriers": [],
+            "📋 Other Fields": []
         }
+        
+        # Categorize fields with priority order to prevent duplicates
+        for field in optional_fields.keys():
+            if field in processed_fields:
+                continue
+            # Priority order: Pricing & Bids > Load Information > Location > Contacts > Other
+            if 'bid' in field.lower() or 'cost' in field.lower() or 'rate' in field.lower():
+                categories["💰 Pricing & Bids"].append(field)
+            elif 'items' in field or 'equipment' in field or 'weight' in field:
+                categories["📦 Load Information"].append(field)
+            elif 'address' in field or 'route' in field:
+                categories["📍 Location Details"].append(field)
+            elif 'contact' in field or 'carrier' in field or 'driver' in field:
+                categories["👥 Contacts & Carriers"].append(field)
+            else:
+                categories["📋 Other Fields"].append(field)
+            processed_fields.add(field)
         
         for category_name, category_fields in categories.items():
             if category_fields:
@@ -1903,6 +1920,8 @@ def create_learning_enhanced_field_mapping_row(field: str, field_info: dict, df,
     # Guard against duplicate rendering in the same cycle
     if field_render_id in st.session_state.field_rendering_guard:
         st.error(f"🔴 Duplicate field rendering detected: {field}")
+        st.error(f"🔍 Debug info - Field ID: {field_render_id}, Tab: {st.session_state.get('mapping_tab_index', 0)}, Required: {required}")
+        st.error(f"🔍 Current guard contents: {sorted(list(st.session_state.field_rendering_guard))}")
         return
     
     st.session_state.field_rendering_guard.add(field_render_id)
