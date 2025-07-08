@@ -846,17 +846,14 @@ def _render_smart_actions():
     # Simple actions header
     st.markdown("**⚡ Actions**")
     
-    # Primary action based on workflow state
-    if st.session_state.get('validation_passed'):
-        if st.button("🚀 Process Data", type="primary", use_container_width=True, key="primary_action"):
-            st.session_state.trigger_processing = True
-    elif st.session_state.get('uploaded_df') is not None:
+    # Primary action based on workflow state - removed redundant Process Data button
+    if st.session_state.get('uploaded_df') is not None and not st.session_state.get('validation_passed'):
         if st.button("🔍 Validate Mapping", type="primary", use_container_width=True, key="primary_action"):
             st.session_state.trigger_validation = True
-    elif st.session_state.get('selected_configuration'):
+    elif st.session_state.get('selected_configuration') and not st.session_state.get('uploaded_df'):
         # Skip upload file action - it's redundant with main upload area
         pass
-    else:
+    elif not st.session_state.get('selected_configuration'):
         if st.button("⚙️ Setup Configuration", type="primary", use_container_width=True, key="primary_action"):
             st.session_state.focus_config = True
     
@@ -1165,9 +1162,6 @@ def main_workflow(db_manager, data_processor):
     # Processing Section (only show if validation passed)
     if st.session_state.get('validation_passed'):
         _render_processing_section(db_manager, data_processor)
-    
-    # Database status monitoring
-    show_database_status()
     
     # Learning analytics dashboard
     if st.session_state.get('show_learning_analytics'):
@@ -2304,63 +2298,7 @@ def restore_database_from_backup(uploaded_file):
     except Exception as e:
         return {'success': False, 'error': str(e)}
 
-def show_database_status():
-    """Show database health and recommendations with enhanced monitoring"""
-    from src.backend.database import DatabaseManager
-    db_manager = DatabaseManager()
-    stats = db_manager.get_database_stats()
-    
-    # Calculate database age (time since container start)
-    container_start_time = get_container_start_time()
-    
-    if container_start_time:
-        hours_running = (datetime.now() - container_start_time).total_seconds() / 3600
-        
-        # Enhanced container age warnings with progressive severity
-        if hours_running > 168:  # 7 days
-            st.error(f"🚨 CRITICAL: Container running {hours_running:.1f} hours ({hours_running/24:.1f} days). Data loss risk is HIGH!")
-            st.error("⚠️ Download backup immediately before container restart!")
-        elif hours_running > 72:  # 3 days
-            st.warning(f"⚠️ HIGH RISK: Container running {hours_running:.1f} hours ({hours_running/24:.1f} days). Download backup now!")
-        elif hours_running > 24:  # 1 day
-            st.info(f"⏰ Container running {hours_running:.1f} hours. Consider downloading backup.")
-        elif hours_running > 12:  # 12 hours
-            st.caption(f"✅ Container stable ({hours_running:.1f} hours running)")
-    
-    # Enhanced backup recommendations based on data volume
-    total_data_points = stats['customer_mappings'] + stats['upload_history']
-    
-    if total_data_points > 50:
-        st.error("💾 URGENT: Large dataset detected. Download backup before any major operations!")
-    elif total_data_points > 20:
-        st.warning("💡 RECOMMENDED: Regular backup suggested for data safety")
-    elif total_data_points > 5:
-        st.info("💡 TIP: Consider downloading backup to preserve your configurations")
-    
-    # Show compact database metrics
-    if total_data_points > 0:
-        col1, col2, col3 = st.columns(3)
-        with col1:
-            st.metric("📊 Configs", stats['customer_mappings'])
-        with col2:
-            st.metric("📤 Uploads", stats['upload_history'])
-        with col3:
-            health_icon = "🟢" if hours_running < 24 else "🟡" if hours_running < 72 else "🔴"
-            st.metric("🏥 Health", f"{health_icon} {hours_running:.1f}h")
-    
-    # Ephemeral storage reminder
-    if total_data_points > 0:
-        st.caption("⚠️ Data stored in ephemeral container - will be lost on restart")
-        
-        # Show last backup info if available
-        if 'last_backup_time' in st.session_state:
-            time_since_backup = datetime.now() - st.session_state.last_backup_time
-            hours_since_backup = time_since_backup.total_seconds() / 3600
-            
-            if hours_since_backup > 24:
-                st.warning(f"⏰ Last backup: {hours_since_backup:.1f} hours ago")
-            else:
-                st.caption(f"💾 Last backup: {hours_since_backup:.1f} hours ago")
+
 
 def get_container_start_time():
     """Estimate container start time based on app initialization"""
