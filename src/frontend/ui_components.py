@@ -961,9 +961,12 @@ def create_field_mapping_row(field: str, field_info: dict, df, updated_mappings:
                     <code>{field}</code>
                 </div>
                 {f'<div style="font-size: 0.75rem; color: #dc2626; margin-top: 0.25rem;"><strong>Required Field</strong></div>' if required else ''}
-                {f'<div style="font-size: 0.75rem; color: #64748b; margin-top: 0.25rem;">Options: {", ".join(field_info["enum"])}</div>' if field_info.get('enum') else ''}
             </div>
         """, unsafe_allow_html=True)
+        
+        # Display enum options separately to avoid HTML rendering issues
+        if field_info.get('enum'):
+            st.caption(f"**Options:** {', '.join(str(option) for option in field_info['enum'])}")
     
     with col2:
         # Column selection with current mapping highlighted
@@ -1893,6 +1896,7 @@ def create_learning_enhanced_field_mapping_row(field: str, field_info: dict, df,
         elif learning_confidence and learning_confidence > 0.5:
             learning_badge = f'<div style="display: inline-block; background: #f59e0b; color: white; padding: 0.125rem 0.5rem; border-radius: 0.25rem; font-size: 0.75rem; margin-left: 0.5rem;">🧠 {learning_confidence:.1%}</div>'
         
+        # Main field display
         st.markdown(f"""
             <div style="padding: 0.5rem; background: {'rgba(239, 68, 68, 0.05)' if required else 'rgba(248, 250, 252, 1)'}; 
                         border-radius: 0.5rem; border-left: 3px solid {color};">
@@ -1903,9 +1907,12 @@ def create_learning_enhanced_field_mapping_row(field: str, field_info: dict, df,
                     <code>{field}</code>
                 </div>
                 {f'<div style="font-size: 0.75rem; color: #dc2626; margin-top: 0.25rem;"><strong>Required Field</strong></div>' if required else ''}
-                {f'<div style="font-size: 0.75rem; color: #64748b; margin-top: 0.25rem;">Options: {", ".join(field_info["enum"])}</div>' if field_info.get('enum') else ''}
             </div>
         """, unsafe_allow_html=True)
+        
+        # Display enum options separately to avoid HTML rendering issues
+        if field_info.get('enum'):
+            st.caption(f"**Options:** {', '.join(str(option) for option in field_info['enum'])}")
     
     with col2:
         # Column selection with learning highlights
