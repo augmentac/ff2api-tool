@@ -586,7 +586,30 @@ def _render_brokerage_selection(db_manager):
     
     # Update session state
     if selected_brokerage and selected_brokerage.strip() and selected_brokerage != "-- Choose a brokerage --":
-        st.session_state.brokerage_name = selected_brokerage.strip()
+        # Check if brokerage selection has changed
+        current_brokerage = st.session_state.get('brokerage_name', '')
+        new_brokerage = selected_brokerage.strip()
+        
+        if current_brokerage != new_brokerage:
+            # Clear any existing configuration when changing brokerage
+            if 'selected_configuration' in st.session_state:
+                del st.session_state['selected_configuration']
+            if 'api_credentials' in st.session_state:
+                del st.session_state['api_credentials']
+            
+            st.session_state.brokerage_name = new_brokerage
+            st.rerun()
+        else:
+            st.session_state.brokerage_name = new_brokerage
+    elif selected_brokerage == "-- Choose a brokerage --":
+        # Clear brokerage selection if user selects the default option
+        if 'brokerage_name' in st.session_state:
+            del st.session_state['brokerage_name']
+            if 'selected_configuration' in st.session_state:
+                del st.session_state['selected_configuration']
+            if 'api_credentials' in st.session_state:
+                del st.session_state['api_credentials']
+            st.rerun()
 
 def _render_configuration_selection(db_manager, brokerage_name):
     """Render compact configuration selection"""
