@@ -6,12 +6,13 @@ Contains reusable UI components and styling helpers
 import streamlit as st
 import pandas as pd
 import json
-from typing import List, Dict, Any, Optional, Tuple
-from datetime import datetime
-import os
+import re
 import logging
-import time
-import uuid
+from typing import Dict, List, Optional, Any
+from datetime import datetime
+from src.backend.database import DatabaseManager
+from src.backend.data_processor import DataProcessor
+import os
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -1871,12 +1872,12 @@ def create_learning_enhanced_field_mapping_row(field: str, field_info: dict, df,
     """Create a field mapping row with learning indicators"""
     col1, col2, col3 = st.columns([3, 2, 1])
     
-    # Create absolutely unique keys using UUID to prevent any collisions
+    # Create stable keys that don't change on every render
     key_suffix = "req" if required else "opt"
     tab_index = st.session_state.get('mapping_tab_index', 0)
-    timestamp = int(time.time() * 1000)  # milliseconds
-    unique_id = str(uuid.uuid4())[:8]  # Short UUID
-    base_key = f"{key_suffix}_{tab_index}_{field}_{timestamp}_{unique_id}".replace(".", "_").replace(" ", "_")
+    brokerage_key = (brokerage_name or 'default').replace(' ', '_').replace('.', '_')
+    field_key = field.replace('.', '_').replace(' ', '_').replace('[', '_').replace(']', '_')
+    base_key = f"{key_suffix}_{tab_index}_{brokerage_key}_{field_key}"
     
     with col1:
         # Get learning confidence if available
