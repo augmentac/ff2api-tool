@@ -1517,7 +1517,7 @@ class DataProcessor:
         
         return enhanced_suggestions
     
-         def _calculate_base_confidence(self, column_name: str, suggested_field: Optional[str]) -> float:
+    def _calculate_base_confidence(self, column_name: str, suggested_field: Optional[str]) -> float:
         """Calculate confidence score for base suggestion"""
         if not suggested_field:
             return 0.0
@@ -1679,43 +1679,43 @@ class DataProcessor:
     def _infer_column_type(self, column: pd.Series) -> str:
         """Infer the data type of a column"""
         try:
-                         # Check if numeric
-             if pd.api.types.is_numeric_dtype(column):
-                 return 'numeric'
-             
-             # Check if datetime
-             if pd.api.types.is_datetime64_any_dtype(column):
-                 return 'datetime'
-             
-             # Check if boolean
-             if pd.api.types.is_bool_dtype(column):
-                 return 'boolean'
-             
-             # Try to infer from sample values
-             sample_values = column.dropna().head(100)
-             
-             # Check for date patterns
-             date_patterns = [
-                 r'\d{4}-\d{2}-\d{2}',  # YYYY-MM-DD
-                 r'\d{2}/\d{2}/\d{4}',  # MM/DD/YYYY
-                 r'\d{1,2}/\d{1,2}/\d{2,4}',  # M/D/YY or MM/DD/YYYY
-             ]
-             
-             for pattern in date_patterns:
-                 matches = sample_values.astype(str).str.match(pattern)
-                 if len(matches) > 0 and matches.any():
-                     return 'date'
-             
-             # Check for email patterns
-             email_matches = sample_values.astype(str).str.contains('@')
-             if len(email_matches) > 0 and email_matches.any():
-                 return 'email'
-             
-             # Check for phone patterns
-             phone_pattern = r'[\+]?[1-9]?[\d\s\-\(\)]{7,15}'
-             phone_matches = sample_values.astype(str).str.match(phone_pattern)
-             if len(phone_matches) > 0 and phone_matches.any():
-                 return 'phone'
+            # Check if numeric
+            if pd.api.types.is_numeric_dtype(column):
+                return 'numeric'
+            
+            # Check if datetime
+            if pd.api.types.is_datetime64_any_dtype(column):
+                return 'datetime'
+            
+            # Check if boolean
+            if pd.api.types.is_bool_dtype(column):
+                return 'boolean'
+            
+            # Try to infer from sample values
+            sample_values = column.dropna().head(100)
+            
+            # Check for date patterns
+            date_patterns = [
+                r'\d{4}-\d{2}-\d{2}',  # YYYY-MM-DD
+                r'\d{2}/\d{2}/\d{4}',  # MM/DD/YYYY
+                r'\d{1,2}/\d{1,2}/\d{2,4}',  # M/D/YY or MM/DD/YYYY
+            ]
+            
+            for pattern in date_patterns:
+                matches = sample_values.astype(str).str.match(pattern)
+                if len(matches) > 0 and matches.any():
+                    return 'date'
+            
+            # Check for email patterns
+            email_matches = sample_values.astype(str).str.contains('@')
+            if len(email_matches) > 0 and email_matches.any():
+                return 'email'
+            
+            # Check for phone patterns
+            phone_pattern = r'[\+]?[1-9]?[\d\s\-\(\)]{7,15}'
+            phone_matches = sample_values.astype(str).str.match(phone_pattern)
+            if len(phone_matches) > 0 and phone_matches.any():
+                return 'phone'
             
             # Default to string
             return 'string'
