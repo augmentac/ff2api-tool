@@ -934,6 +934,90 @@ class DatabaseManager:
                                    total_records, successful_records, failed_records, 
                                    error_log, processing_time, file_headers, session_id):
         """Save enhanced upload history with detailed error tracking"""
+        
+        # Data validation and type conversion to prevent SQLite parameter binding errors
+        def safe_convert_to_str(value, default=""):
+            """Safely convert value to string"""
+            if value is None:
+                return default
+            if isinstance(value, (str, int, float)):
+                return str(value)
+            return default
+        
+        def safe_convert_to_int(value, default=0):
+            """Safely convert value to integer"""
+            if value is None:
+                return default
+            if isinstance(value, (int, float)):
+                return int(value)
+            if isinstance(value, str):
+                try:
+                    return int(float(value))
+                except (ValueError, TypeError):
+                    return default
+            if isinstance(value, dict):
+                # Handle case where value is accidentally a dict - extract meaningful value if possible
+                if 'value' in value:
+                    return safe_convert_to_int(value['value'], default)
+                return default
+            return default
+        
+        def safe_convert_to_float(value, default=0.0):
+            """Safely convert value to float"""
+            if value is None:
+                return default
+            if isinstance(value, (int, float)):
+                return float(value)
+            if isinstance(value, str):
+                try:
+                    return float(value)
+                except (ValueError, TypeError):
+                    return default
+            return default
+        
+        # Validate and convert all parameters
+        brokerage_name = safe_convert_to_str(brokerage_name, "Unknown")
+        configuration_name = safe_convert_to_str(configuration_name, "Unknown")
+        filename = safe_convert_to_str(filename, "unknown_file.csv")
+        total_records = safe_convert_to_int(total_records, 0)
+        successful_records = safe_convert_to_int(successful_records, 0)
+        failed_records = safe_convert_to_int(failed_records, 0)
+        processing_time = safe_convert_to_float(processing_time, 0.0)
+        session_id = safe_convert_to_str(session_id, f"session_{datetime.now().isoformat()}")
+        
+        # Validate integer constraints
+        if total_records < 0:
+            total_records = 0
+        if successful_records < 0:
+            successful_records = 0
+        if failed_records < 0:
+            failed_records = 0
+        if processing_time < 0:
+            processing_time = 0.0
+        
+        # Ensure successful + failed doesn't exceed total (logical consistency)
+        if successful_records + failed_records > total_records:
+            total_records = successful_records + failed_records
+        
+        # Handle error_log - ensure it's a string (JSON) or None
+        if error_log is not None and not isinstance(error_log, str):
+            try:
+                error_log = json.dumps(error_log)
+            except:
+                error_log = None
+        
+        # Handle file_headers - ensure it's properly JSON serialized
+        if file_headers is not None:
+            try:
+                if isinstance(file_headers, str):
+                    # Already a string, validate it's valid JSON
+                    json.loads(file_headers)
+                else:
+                    # Convert to JSON string
+                    file_headers = json.dumps(file_headers)
+            except:
+                file_headers = None
+        
         conn = sqlite3.connect(self.db_path)
         cursor = conn.cursor()
         
@@ -946,7 +1030,7 @@ class DatabaseManager:
         ''', (
             brokerage_name, configuration_name, filename, total_records,
             successful_records, failed_records, error_log, processing_time,
-            json.dumps(file_headers) if file_headers else None, session_id
+            file_headers, session_id
         ))
         
         upload_id = cursor.lastrowid
@@ -957,10 +1041,63 @@ class DatabaseManager:
 
     def save_processing_errors(self, upload_history_id, errors_list):
         """Save detailed processing errors for troubleshooting"""
+        
+        # Validate upload_history_id
+        if not isinstance(upload_history_id, int) or upload_history_id <= 0:
+            logging.error(f"Invalid upload_history_id: {upload_history_id}")
+            return
+        
+        # Validate errors_list
+        if not errors_list or not isinstance(errors_list, list):
+            logging.warning("No errors provided or invalid errors_list format")
+            return
+        
         conn = sqlite3.connect(self.db_path)
         cursor = conn.cursor()
         
+        def safe_convert_to_str(value, default=""):
+            """Safely convert value to string"""
+            if value is None:
+                return default
+            if isinstance(value, (str, int, float)):
+                return str(value)
+            if isinstance(value, dict):
+                return str(value)
+            return default
+        
+        def safe_convert_to_int(value, default=None):
+            """Safely convert value to integer"""
+            if value is None:
+                return default
+            if isinstance(value, (int, float)):
+                return int(value)
+            if isinstance(value, str):
+                try:
+                    return int(float(value))
+                except (ValueError, TypeError):
+                    return default
+            return default
+        
         for error in errors_list:
+            # Validate that error is a dictionary
+            if not isinstance(error, dict):
+                logging.warning(f"Skipping invalid error record: {error}")
+                continue
+            
+            # Extract and validate error fields
+            row_number = safe_convert_to_int(error.get('row_number'))
+            field_name = safe_convert_to_str(error.get('field_name'))
+            error_type = safe_convert_to_str(error.get('error_type'))
+            error_message = safe_convert_to_str(error.get('error_message'))
+            suggested_fix = safe_convert_to_str(error.get('suggested_fix'))
+            original_value = safe_convert_to_str(error.get('original_value'))
+            expected_format = safe_convert_to_str(error.get('expected_format'))
+            
+            # Skip if essential fields are missing
+            if not error_type or not error_message:
+                logging.warning(f"Skipping error record with missing essential fields: {error}")
+                continue
+            
             cursor.execute('''
                 INSERT INTO processing_errors 
                 (upload_history_id, row_number, field_name, error_type, 
@@ -968,13 +1105,13 @@ class DatabaseManager:
                 VALUES (?, ?, ?, ?, ?, ?, ?, ?)
             ''', (
                 upload_history_id,
-                error.get('row_number'),
-                error.get('field_name'),
-                error.get('error_type'),
-                error.get('error_message'),
-                error.get('suggested_fix'),
-                error.get('original_value'),
-                error.get('expected_format')
+                row_number,
+                field_name,
+                error_type,
+                error_message,
+                suggested_fix,
+                original_value,
+                expected_format
             ))
         
         conn.commit()

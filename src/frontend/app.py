@@ -1957,16 +1957,41 @@ def create_database_backup():
             })
     
     # Export upload history (last 100 records to keep size manageable)
+    # Improved data structure with proper type handling
     upload_history = db_manager.get_upload_history(limit=100)
     for record in upload_history:
-        backup_data['upload_history'].append({
-            'brokerage_name': record[1],
-            'filename': record[3],
-            'total_records': record[4],
-            'successful_records': record[5],
-            'failed_records': record[6],
-            'upload_timestamp': record[11] if len(record) > 11 else record[7]
-        })
+        # record is a tuple from SQLite, extract values safely
+        try:
+            # Handle different record lengths from schema evolution
+            brokerage_name = record[1] if len(record) > 1 else 'Unknown'
+            configuration_name = record[2] if len(record) > 2 else 'Unknown'
+            filename = record[3] if len(record) > 3 else 'unknown_file.csv'
+            total_records = int(record[4]) if len(record) > 4 and record[4] is not None else 0
+            successful_records = int(record[5]) if len(record) > 5 and record[5] is not None else 0
+            failed_records = int(record[6]) if len(record) > 6 and record[6] is not None else 0
+            
+            # Handle timestamp - could be in different positions due to schema changes
+            upload_timestamp = None
+            if len(record) > 11 and record[11] is not None:
+                upload_timestamp = record[11]
+            elif len(record) > 7 and record[7] is not None:
+                upload_timestamp = record[7]
+            else:
+                upload_timestamp = datetime.now().isoformat()
+            
+            backup_data['upload_history'].append({
+                'brokerage_name': str(brokerage_name),
+                'configuration_name': str(configuration_name),
+                'filename': str(filename),
+                'total_records': total_records,
+                'successful_records': successful_records,
+                'failed_records': failed_records,
+                'upload_timestamp': upload_timestamp
+            })
+        except (IndexError, ValueError, TypeError) as e:
+            # Skip malformed records but log the issue
+            logger.warning(f"Skipping malformed upload history record: {e}")
+            continue
     
     return json.dumps(backup_data, indent=2)
 
@@ -1999,25 +2024,74 @@ def restore_database_from_backup(uploaded_file):
                 # Log but continue with other configs
                 logger.warning(f"Failed to restore config {config['configuration_name']}: {e}")
         
-        # Restore upload history
+        # Restore upload history with proper data type conversion
         restored_history = 0
         for record in backup_data['upload_history']:
             try:
+                # Convert and validate data types to ensure SQLite compatibility
+                def safe_convert_to_int(value, default=0):
+                    """Safely convert value to integer, handling various data types"""
+                    if value is None:
+                        return default
+                    if isinstance(value, (int, float)):
+                        return int(value)
+                    if isinstance(value, str):
+                        try:
+                            return int(float(value))
+                        except (ValueError, TypeError):
+                            return default
+                    if isinstance(value, dict):
+                        # Handle case where value is accidentally a dict
+                        return default
+                    return default
+                
+                def safe_convert_to_str(value, default=""):
+                    """Safely convert value to string"""
+                    if value is None:
+                        return default
+                    if isinstance(value, (str, int, float)):
+                        return str(value)
+                    if isinstance(value, dict):
+                        # If it's a dict, try to get a reasonable string representation
+                        return str(value)
+                    return default
+                
+                # Extract and validate all parameters
+                brokerage_name = safe_convert_to_str(record.get('brokerage_name'), 'Unknown')
+                configuration_name = safe_convert_to_str(record.get('configuration_name'), 'Unknown')
+                filename = safe_convert_to_str(record.get('filename'), 'unknown_file.csv')
+                total_records = safe_convert_to_int(record.get('total_records'), 0)
+                successful_records = safe_convert_to_int(record.get('successful_records'), 0)
+                failed_records = safe_convert_to_int(record.get('failed_records'), 0)
+                
+                # Validate that the integers make sense
+                if total_records < 0:
+                    total_records = 0
+                if successful_records < 0:
+                    successful_records = 0
+                if failed_records < 0:
+                    failed_records = 0
+                
+                # Ensure successful + failed doesn't exceed total
+                if successful_records + failed_records > total_records:
+                    total_records = successful_records + failed_records
+                
                 db_manager.save_upload_history_enhanced(
-                    brokerage_name=record['brokerage_name'],
-                    configuration_name=record.get('configuration_name', 'Unknown'),
-                    filename=record['filename'],
-                    total_records=record['total_records'],
-                    successful_records=record['successful_records'],
-                    failed_records=record['failed_records'],
+                    brokerage_name=brokerage_name,
+                    configuration_name=configuration_name,
+                    filename=filename,
+                    total_records=total_records,
+                    successful_records=successful_records,
+                    failed_records=failed_records,
                     error_log=None,
-                    processing_time=0,
+                    processing_time=0.0,
                     file_headers=None,
                     session_id=f"restored_{datetime.now().isoformat()}"
                 )
                 restored_history += 1
             except Exception as e:
-                logger.warning(f"Failed to restore upload record {record['filename']}: {e}")
+                logger.warning(f"Failed to restore upload record {record.get('filename', 'unknown')}: {e}")
+                # Continue with other records
         
         return {
             'success': True,
