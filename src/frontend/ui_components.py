@@ -1695,9 +1695,10 @@ def create_learning_enhanced_mapping_interface(df, existing_mappings, data_proce
     required_fields = {k: v for k, v in api_schema.items() if v.get('required', False)}
     optional_fields = {k: v for k, v in api_schema.items() if not v.get('required', False)}
     
-    # Progress tracking
+    # Progress tracking - use current session state if available
     total_required = len(required_fields)
-    mapped_required = len([f for f in required_fields.keys() if f in field_mappings])
+    current_mappings = st.session_state.get('field_mappings', field_mappings)
+    mapped_required = len([f for f in required_fields.keys() if f in current_mappings])
     
     if total_required > 0:
         progress = mapped_required / total_required
@@ -1732,8 +1733,12 @@ def create_learning_enhanced_mapping_interface(df, existing_mappings, data_proce
                 # Keep the mapping section expanded when switching tabs
                 st.session_state.mapping_section_expanded = True
     
-    # Tab content
-    updated_mappings = field_mappings.copy()
+    # Tab content - ensure updated_mappings stays in sync with session state
+    # Since field rows update session state immediately, we need to sync back
+    if 'field_mappings' in st.session_state:
+        updated_mappings = st.session_state.field_mappings.copy()
+    else:
+        updated_mappings = field_mappings.copy()
     
     if st.session_state.mapping_tab_index == 0:
         # Required Fields Tab
@@ -1791,10 +1796,12 @@ def create_learning_enhanced_mapping_interface(df, existing_mappings, data_proce
             if db_manager and brokerage_name:
                 session_id = st.session_state.get('session_id', 'unknown')
                 try:
+                    # Use current session state for tracking since field rows update it directly
+                    current_mappings = st.session_state.get('field_mappings', updated_mappings)
                     tracking_result = data_processor.track_mapping_interaction(
                         session_id, brokerage_name, configuration_name or '',
                         list(df.columns), st.session_state.suggested_mappings,
-                        updated_mappings, df, db_manager
+                        current_mappings, df, db_manager
                     )
                     
                     if tracking_result:
@@ -1804,9 +1811,11 @@ def create_learning_enhanced_mapping_interface(df, existing_mappings, data_proce
                 except Exception as e:
                     logger.error(f"Failed to track mapping interaction: {e}")
             
-            st.session_state.field_mappings = updated_mappings
-            mapped_required_after = len([f for f in required_fields.keys() if f in updated_mappings])
-            st.success(f"Applied {len(updated_mappings)} mappings! ({mapped_required_after}/{total_required} required fields mapped)")
+            # updated_mappings is already in sync with session state via field row updates
+            current_mappings = st.session_state.get('field_mappings', updated_mappings)
+            st.session_state.field_mappings = current_mappings
+            mapped_required_after = len([f for f in required_fields.keys() if f in current_mappings])
+            st.success(f"Applied {len(current_mappings)} mappings! ({mapped_required_after}/{total_required} required fields mapped)")
             
             if mapped_required_after == total_required:
                 st.session_state.current_step = max(st.session_state.current_step, 5)
@@ -1846,10 +1855,12 @@ def create_learning_enhanced_mapping_interface(df, existing_mappings, data_proce
             if db_manager and brokerage_name:
                 session_id = st.session_state.get('session_id', 'unknown')
                 try:
+                    # Use current session state for tracking since field rows update it directly
+                    current_mappings = st.session_state.get('field_mappings', updated_mappings)
                     tracking_result = data_processor.track_mapping_interaction(
                         session_id, brokerage_name, configuration_name or '',
                         list(df.columns), st.session_state.suggested_mappings,
-                        updated_mappings, df, db_manager
+                        current_mappings, df, db_manager
                     )
                     
                     if tracking_result:
@@ -1858,8 +1869,10 @@ def create_learning_enhanced_mapping_interface(df, existing_mappings, data_proce
                 except Exception as e:
                     logger.error(f"Failed to track mapping interaction: {e}")
             
-            st.session_state.field_mappings = updated_mappings
-            mapped_required_after = len([f for f in required_fields.keys() if f in updated_mappings])
+            # updated_mappings is already in sync with session state via field row updates
+            current_mappings = st.session_state.get('field_mappings', updated_mappings)
+            st.session_state.field_mappings = current_mappings
+            mapped_required_after = len([f for f in required_fields.keys() if f in current_mappings])
             
             if mapped_required_after == total_required:
                 st.session_state.current_step = max(st.session_state.current_step, 5)
@@ -1869,7 +1882,8 @@ def create_learning_enhanced_mapping_interface(df, existing_mappings, data_proce
                 st.warning(f"⚠️ Please map all {total_required} required fields before continuing. "
                           f"Currently mapped: {mapped_required_after}")
     
-    return updated_mappings
+    # Return the current session state since field rows update it directly
+    return st.session_state.get('field_mappings', updated_mappings)
 
 def create_learning_enhanced_field_mapping_row(field: str, field_info: dict, df, 
                                              updated_mappings: dict, required: bool = False,
@@ -1972,7 +1986,8 @@ def create_learning_enhanced_field_mapping_row(field: str, field_info: dict, df,
     
     with col2:
         # Column selection with learning highlights
-        current_mapping = updated_mappings.get(field, None)
+        # Check session state first, then fall back to updated_mappings
+        current_mapping = st.session_state.get('field_mappings', {}).get(field, None) or updated_mappings.get(field, None)
         column_options = ["None"] + list(df.columns)
         
         if current_mapping and current_mapping.startswith('MANUAL_VALUE:'):
@@ -1990,10 +2005,10 @@ def create_learning_enhanced_field_mapping_row(field: str, field_info: dict, df,
             label_visibility="collapsed"
         )
         
-        # Immediately update session state when mapping changes
+        # Update both local mappings and session state immediately
         if selected_column != "None":
             updated_mappings[field] = selected_column
-            # Update session state immediately
+            # Update session state immediately to persist across tab switches
             if 'field_mappings' not in st.session_state:
                 st.session_state.field_mappings = {}
             st.session_state.field_mappings[field] = selected_column
@@ -2004,9 +2019,9 @@ def create_learning_enhanced_field_mapping_row(field: str, field_info: dict, df,
                 if sample_data:
                     st.caption(f"Sample: {', '.join(str(x)[:20] for x in sample_data)}")
         elif field in updated_mappings and not updated_mappings[field].startswith('MANUAL_VALUE:'):
+            # Remove from both local mappings and session state
             if field in updated_mappings:
                 del updated_mappings[field]
-            # Update session state immediately
             if 'field_mappings' in st.session_state and field in st.session_state.field_mappings:
                 del st.session_state.field_mappings[field]
     
@@ -2020,7 +2035,7 @@ def create_learning_enhanced_field_mapping_row(field: str, field_info: dict, df,
             )
             if manual_value:
                 updated_mappings[field] = f"MANUAL_VALUE:{manual_value}"
-                # Update session state immediately
+                # Update session state immediately to persist across tab switches
                 if 'field_mappings' not in st.session_state:
                     st.session_state.field_mappings = {}
                 st.session_state.field_mappings[field] = f"MANUAL_VALUE:{manual_value}"
