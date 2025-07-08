@@ -1097,11 +1097,223 @@ def main_workflow(db_manager, data_processor):
     
     brokerage_name = st.session_state.brokerage_name
     
-    # === 1. HEADER INTEGRATION & SPACING ===
-    # Clean, minimal header without redundant status buttons
-    st.markdown("### 📁 Upload Your Data")
+    # === PROGRESSIVE DISCLOSURE LANDING PAGE ===
+    # Only show what's needed at each step
     
-    # Optional: Show compact status info below header if needed
+    # Check if user has uploaded a file
+    has_uploaded_file = st.session_state.get('uploaded_df') is not None
+    
+    if not has_uploaded_file:
+        # === CLEAN LANDING STATE ===
+        # Focus entirely on upload with clear value proposition
+        _render_landing_page()
+    else:
+        # === PROGRESSIVE WORKFLOW ===
+        # Show progress and workflow sections after file upload
+        _render_workflow_with_progress(db_manager, data_processor)
+
+def _render_landing_page():
+    """Clean landing page focused on file upload"""
+    
+    # Value proposition header
+    st.markdown("""
+        <div style="
+            text-align: center;
+            padding: 2rem 0 1rem 0;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            border-radius: 1rem;
+            margin: 1rem 0 2rem 0;
+            color: white;
+        ">
+            <h2 style="
+                margin: 0 0 0.5rem 0;
+                font-size: 2.5rem;
+                font-weight: 700;
+                text-shadow: 0 2px 4px rgba(0,0,0,0.1);
+            ">
+                Transform Your Data in 3 Simple Steps
+            </h2>
+            <p style="
+                margin: 0;
+                font-size: 1.1rem;
+                opacity: 0.9;
+                max-width: 600px;
+                margin: 0 auto;
+            ">
+                Upload your CSV or Excel file and we'll automatically map it to API calls
+            </p>
+        </div>
+    """, unsafe_allow_html=True)
+    
+    # Large, prominent upload area
+    _render_enhanced_file_upload()
+    
+    # Simple benefits section
+    st.markdown("""
+        <div style="
+            display: flex;
+            justify-content: space-around;
+            margin: 2rem 0;
+            padding: 1.5rem;
+            background: #f8fafc;
+            border-radius: 0.75rem;
+            border: 1px solid #e2e8f0;
+        ">
+            <div style="text-align: center; flex: 1;">
+                <div style="font-size: 2rem; margin-bottom: 0.5rem;">📤</div>
+                <div style="font-weight: 600; color: #1e293b;">Upload</div>
+                <div style="font-size: 0.9rem; color: #64748b;">CSV, Excel files</div>
+            </div>
+            <div style="text-align: center; flex: 1;">
+                <div style="font-size: 2rem; margin-bottom: 0.5rem;">🔗</div>
+                <div style="font-weight: 600; color: #1e293b;">Auto-Map</div>
+                <div style="font-size: 0.9rem; color: #64748b;">AI-powered mapping</div>
+            </div>
+            <div style="text-align: center; flex: 1;">
+                <div style="font-size: 2rem; margin-bottom: 0.5rem;">🚀</div>
+                <div style="font-weight: 600; color: #1e293b;">Process</div>
+                <div style="font-size: 0.9rem; color: #64748b;">Instant API calls</div>
+            </div>
+        </div>
+    """, unsafe_allow_html=True)
+
+def _render_enhanced_file_upload():
+    """Enhanced file upload area with better visual design"""
+    
+    # Create a prominent upload container
+    st.markdown("""
+        <div style="
+            background: white;
+            border-radius: 1rem;
+            padding: 2rem;
+            border: 2px dashed #cbd5e1;
+            margin: 1rem 0;
+            text-align: center;
+            transition: all 0.3s ease;
+            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
+        ">
+    """, unsafe_allow_html=True)
+    
+    uploaded_file = st.file_uploader(
+        "Choose your file",
+        type=['csv', 'xlsx', 'xls'],
+        key="main_file_uploader",
+        help="Maximum size: 200MB • Supported formats: CSV, Excel (.xlsx, .xls)",
+        label_visibility="collapsed"
+    )
+    
+    if uploaded_file:
+        _process_uploaded_file(uploaded_file)
+    
+    st.markdown("</div>", unsafe_allow_html=True)
+    
+    # File format indicators
+    st.markdown("""
+        <div style="
+            text-align: center;
+            margin: 1rem 0;
+            color: #64748b;
+            font-size: 0.9rem;
+        ">
+            <div style="margin-bottom: 0.5rem;">
+                <strong>Supported formats:</strong>
+            </div>
+            <div style="display: flex; justify-content: center; gap: 1rem;">
+                <span style="
+                    background: #f1f5f9;
+                    padding: 0.25rem 0.75rem;
+                    border-radius: 0.5rem;
+                    font-weight: 500;
+                ">📄 CSV</span>
+                <span style="
+                    background: #f1f5f9;
+                    padding: 0.25rem 0.75rem;
+                    border-radius: 0.5rem;
+                    font-weight: 500;
+                ">📊 Excel</span>
+                <span style="
+                    background: #f1f5f9;
+                    padding: 0.25rem 0.75rem;
+                    border-radius: 0.5rem;
+                    font-weight: 500;
+                ">📈 XLSX</span>
+            </div>
+        </div>
+    """, unsafe_allow_html=True)
+
+def _process_uploaded_file(uploaded_file):
+    """Process the uploaded file and update session state"""
+    try:
+        # Process file upload
+        with st.spinner("📖 Reading file..."):
+            if uploaded_file.name.endswith('.csv'):
+                df = pd.read_csv(uploaded_file)
+            else:
+                df = pd.read_excel(uploaded_file)
+        
+        # Normalize and store
+        df = normalize_column_names(df)
+        file_headers = list(df.columns)
+        
+        st.session_state.uploaded_df = df
+        st.session_state.uploaded_file_name = uploaded_file.name
+        st.session_state.file_headers = file_headers
+        st.session_state.file_size = uploaded_file.size / 1024 / 1024  # MB
+        
+        # Header validation with existing config
+        _validate_headers_with_config(file_headers)
+        
+        # Success message
+        st.success(f"✅ **{uploaded_file.name}** loaded successfully • {len(df):,} records • {st.session_state.file_size:.1f} MB")
+        
+        # Auto-rerun to show workflow
+        st.rerun()
+        
+    except Exception as e:
+        st.error(f"❌ Error reading file: {str(e)}")
+
+def _validate_headers_with_config(file_headers):
+    """Validate file headers against existing configuration"""
+    brokerage_name = st.session_state.brokerage_name
+    
+    if (st.session_state.get('configuration_type') == 'existing' and 
+        'selected_configuration' in st.session_state):
+        config = st.session_state.selected_configuration
+        
+        # Check if config has real mappings
+        field_mappings = config.get('field_mappings', {})
+        has_real_mappings = any(not key.startswith('_') for key in field_mappings.keys())
+        
+        if has_real_mappings:
+            # Validate headers against saved config
+            from src.frontend.ui_components import create_header_validation_interface
+            from src.backend.database import DatabaseManager
+            db_manager = DatabaseManager()
+            header_comparison = create_header_validation_interface(
+                file_headers, db_manager, brokerage_name, config['name']
+            )
+            st.session_state.header_comparison = header_comparison
+        else:
+            # Config exists but no real mappings - treat as new
+            st.session_state.header_comparison = {
+                'status': 'new_config',
+                'changes': [],
+                'missing': [],
+                'added': file_headers
+            }
+    else:
+        # New configuration
+        st.session_state.header_comparison = {
+            'status': 'new_config',
+            'changes': [],
+            'missing': [],
+            'added': file_headers
+        }
+
+def _render_workflow_with_progress(db_manager, data_processor):
+    """Show workflow sections with progress bar after file upload"""
+    
+    # Show compact status info
     if st.session_state.get('validation_passed'):
         st.success("✅ Data validated and ready to process")
     elif st.session_state.get('uploaded_df') is not None:
@@ -1113,17 +1325,10 @@ def main_workflow(db_manager, data_processor):
                 st.info("🔍 Ready to validate data mappings")
             else:
                 st.info("🔗 Complete field mapping to continue")
-        # Note: Removed redundant mapping message - now only shown in expandable section
     
-    # === 2. PROGRESS BAR ENHANCEMENT ===
-    # Enhanced progress with visual connections
-    # Determine current step based on session state (simplified and more reliable)
-    
-    # Step 4: Process & Results (only if validation explicitly passed)
+    # Determine current step based on session state
     if st.session_state.get('validation_passed') == True:
         current_step = 4
-    
-    # Step 3: Validation & Save (only if we have real mappings AND file uploaded)
     elif (st.session_state.get('uploaded_df') is not None and 
           'field_mappings' in st.session_state):
         field_mappings = st.session_state.get('field_mappings', {})
@@ -1137,34 +1342,25 @@ def main_workflow(db_manager, data_processor):
         if has_real_mappings:
             current_step = 3
         else:
-            current_step = 2  # File uploaded but no real mappings yet
-    
-    # Step 2: Smart Mapping (file uploaded but no meaningful mappings)
+            current_step = 2
     elif st.session_state.get('uploaded_df') is not None:
         current_step = 2
-    
-    # Step 1: File Upload (default - no file uploaded)
     else:
         current_step = 1
     
+    # Show progress bar
     _render_enhanced_progress(current_step)
     
-    # === 3. FILE UPLOAD AREA REDESIGN ===
-    # Modern card-based upload with enhanced visual hierarchy
-    _render_modern_file_upload(db_manager, data_processor)
+    # Show current file info
+    _render_current_file_info()
     
-    # === 4. PROGRESSIVE DISCLOSURE ===
-    # Smart sections that expand based on workflow state
-    
-    # Field Mapping Section (only show if file uploaded)
+    # Progressive disclosure sections
     if st.session_state.get('uploaded_df') is not None:
         _render_smart_mapping_section(db_manager, data_processor)
     
-    # Validation Section (only show if mappings exist)
     if st.session_state.get('field_mappings'):
         _render_validation_section(db_manager, data_processor)
     
-    # Processing Section (only show if validation passed)
     if st.session_state.get('validation_passed'):
         _render_processing_section(db_manager, data_processor)
     
@@ -1178,6 +1374,54 @@ def main_workflow(db_manager, data_processor):
         if st.button("❌ Close Analytics", key="close_learning_analytics"):
             st.session_state.show_learning_analytics = False
             st.rerun()
+
+def _render_current_file_info():
+    """Show current file information in a compact format"""
+    if st.session_state.get('uploaded_df') is not None:
+        filename = st.session_state.get('uploaded_file_name', 'Unknown')
+        record_count = len(st.session_state.uploaded_df)
+        file_size = st.session_state.get('file_size', 0)
+        
+        st.markdown(f"""
+            <div style="
+                background: #f8fafc;
+                padding: 1rem;
+                border-radius: 0.5rem;
+                border: 1px solid #e2e8f0;
+                margin: 1rem 0;
+                display: flex;
+                align-items: center;
+                justify-content: space-between;
+            ">
+                <div style="display: flex; align-items: center; gap: 0.5rem;">
+                    <div style="font-size: 1.5rem;">📄</div>
+                    <div>
+                        <div style="font-weight: 600; color: #1e293b;">{filename}</div>
+                        <div style="font-size: 0.9rem; color: #64748b;">{record_count:,} records • {file_size:.1f} MB</div>
+                    </div>
+                </div>
+            </div>
+        """, unsafe_allow_html=True)
+        
+        # Action buttons
+        col1, col2 = st.columns([1, 1])
+        with col1:
+            if st.button("📂 Upload Different File", key="change_file_btn", use_container_width=True):
+                # Clear file-related state
+                keys_to_clear = ['uploaded_df', 'uploaded_file_name', 'file_headers', 'validation_passed', 'header_comparison', 'field_mappings', 'mapping_tab_index', 'file_size']
+                for key in keys_to_clear:
+                    if key in st.session_state:
+                        del st.session_state[key]
+                st.rerun()
+        
+        with col2:
+            if st.button("👀 Preview Data", key="preview_toggle_btn", use_container_width=True):
+                st.session_state.show_preview = not st.session_state.get('show_preview', False)
+        
+        # Show preview if requested
+        if st.session_state.get('show_preview', False):
+            with st.expander("📊 Data Preview", expanded=True):
+                st.dataframe(st.session_state.uploaded_df.head(10), use_container_width=True)
 
 def _render_enhanced_progress(current_step):
     """Enhanced progress bar with visual connections and animations"""
@@ -1227,133 +1471,6 @@ def _render_enhanced_progress(current_step):
                 """, unsafe_allow_html=True)
     
     st.markdown("</div>", unsafe_allow_html=True)
-
-def _render_modern_file_upload(db_manager, data_processor):
-    """Modern file upload with enhanced visual design"""
-    
-    # === 5. INFORMATION ARCHITECTURE ===
-    # Single source of truth with context-aware help
-    
-    with st.container():
-        st.markdown("""
-            <div style="
-                background: white;
-                border-radius: 0.5rem;
-                padding: 0.75rem;
-                border: 1px solid #e2e8f0;
-                margin: 0.25rem 0;
-                transition: all 0.3s ease;
-            ">
-        """, unsafe_allow_html=True)
-        
-        # Context-aware upload instructions
-        if st.session_state.get('uploaded_df') is not None:
-            # Compact file status display
-            filename = st.session_state.get('uploaded_file_name', 'Unknown')
-            record_count = len(st.session_state.uploaded_df)
-            file_size = st.session_state.get('file_size', 0)
-            
-            # Single line compact display
-            col1, col2, col3 = st.columns([2, 1, 1])
-            with col1:
-                st.markdown(f"**📄 {filename}** • {record_count:,} records")
-            with col2:
-                if st.button("📂 Change File", key="change_file_btn", use_container_width=True):
-                    # Clear file-related state
-                    keys_to_clear = ['uploaded_df', 'uploaded_file_name', 'file_headers', 'validation_passed', 'header_comparison', 'field_mappings', 'mapping_tab_index']
-                    for key in keys_to_clear:
-                        if key in st.session_state:
-                            del st.session_state[key]
-                    st.rerun()
-            with col3:
-                # Show data preview toggle
-                if st.button("👀 Preview", key="preview_toggle_btn", use_container_width=True):
-                    st.session_state.show_preview = not st.session_state.get('show_preview', False)
-            
-            # Progressive disclosure - show preview only if requested
-            if st.session_state.get('show_preview', False):
-                create_data_preview_card(st.session_state.uploaded_df)
-        
-        else:
-            uploaded_file = st.file_uploader(
-                "Choose a file",
-                type=['csv', 'xlsx', 'xls'],
-                key="main_file_uploader",
-                help="Supported formats: CSV, Excel (.xlsx, .xls). Maximum size: 50MB"
-            )
-            
-            if uploaded_file:
-                try:
-                    # Process file upload
-                    with st.spinner("📖 Reading file..."):
-                        if uploaded_file.name.endswith('.csv'):
-                            df = pd.read_csv(uploaded_file)
-                        else:
-                            df = pd.read_excel(uploaded_file)
-                    
-                    # Normalize and store
-                    df = normalize_column_names(df)
-                    file_headers = list(df.columns)
-                    
-                    st.session_state.uploaded_df = df
-                    st.session_state.uploaded_file_name = uploaded_file.name
-                    st.session_state.file_headers = file_headers
-                    
-                    # Header validation with existing config
-                    _validate_headers_with_config(file_headers, db_manager)
-                    
-                    # Consolidated success message
-                    file_size = uploaded_file.size / 1024 / 1024
-                    st.success(f"✅ **{uploaded_file.name}** loaded successfully • {len(df):,} records • {file_size:.1f} MB")
-                    
-                    # Trigger backup suggestion for large files or important data
-                    if len(df) > 1000 or file_size > 5:
-                        st.info("📊 Large dataset uploaded - consider backing up your work!")
-                        auto_backup_suggestion()
-                    elif len(df) > 100:
-                        auto_backup_suggestion()
-                    
-                    st.rerun()
-                    
-                except Exception as e:
-                    st.error(f"❌ Error reading file: {str(e)}")
-        
-        st.markdown("</div>", unsafe_allow_html=True)
-
-def _validate_headers_with_config(file_headers, db_manager):
-    """Validate file headers against existing configuration"""
-    brokerage_name = st.session_state.brokerage_name
-    
-    if (st.session_state.get('configuration_type') == 'existing' and 
-        'selected_configuration' in st.session_state):
-        config = st.session_state.selected_configuration
-        
-        # Check if config has real mappings
-        field_mappings = config.get('field_mappings', {})
-        has_real_mappings = any(not key.startswith('_') for key in field_mappings.keys())
-        
-        if has_real_mappings:
-            # Validate headers against saved config
-            header_comparison = create_header_validation_interface(
-                file_headers, db_manager, brokerage_name, config['name']
-            )
-            st.session_state.header_comparison = header_comparison
-        else:
-            # Config exists but no real mappings - treat as new
-            st.session_state.header_comparison = {
-                'status': 'new_config',
-                'changes': [],
-                'missing': [],
-                'added': file_headers
-            }
-    else:
-        # New configuration
-        st.session_state.header_comparison = {
-            'status': 'new_config',
-            'changes': [],
-            'missing': [],
-            'added': file_headers
-        }
 
 def _render_smart_mapping_section(db_manager, data_processor):
     """Smart mapping section with progressive disclosure"""
