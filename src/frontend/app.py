@@ -1115,36 +1115,6 @@ def main_workflow(db_manager, data_processor):
 def _render_landing_page():
     """Clean landing page focused on file upload"""
     
-    # Value proposition header
-    st.markdown("""
-        <div style="
-            text-align: center;
-            padding: 2rem 0 1rem 0;
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-            border-radius: 1rem;
-            margin: 1rem 0 2rem 0;
-            color: white;
-        ">
-            <h2 style="
-                margin: 0 0 0.5rem 0;
-                font-size: 2.5rem;
-                font-weight: 700;
-                text-shadow: 0 2px 4px rgba(0,0,0,0.1);
-            ">
-                Transform Your Data in 3 Simple Steps
-            </h2>
-            <p style="
-                margin: 0;
-                font-size: 1.1rem;
-                opacity: 0.9;
-                max-width: 600px;
-                margin: 0 auto;
-            ">
-                Upload your CSV or Excel file and we'll automatically map it to API calls
-            </p>
-        </div>
-    """, unsafe_allow_html=True)
-    
     # Large, prominent upload area
     _render_enhanced_file_upload()
     
