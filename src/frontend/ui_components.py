@@ -1564,9 +1564,12 @@ def create_enhanced_field_mapping_row(field: str, field_info: dict, df, updated_
                 <div style="font-size: 0.75rem; color: #64748b; margin-bottom: 0.25rem;">
                     <code style="font-size: 0.7rem; background: rgba(0,0,0,0.05); padding: 0.1rem 0.3rem; border-radius: 0.2rem;">{field}</code>
                 </div>
-                {f'<div style="font-size: 0.7rem; color: #64748b;">{enum_text}</div>' if enum_text else ''}
             </div>
         """, unsafe_allow_html=True)
+        
+        # Display enum options separately to avoid HTML rendering issues
+        if enum_text:
+            st.caption(enum_text)
     
     with col2:
         # Enhanced mapping controls with integrated manual value option
