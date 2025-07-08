@@ -478,17 +478,24 @@ def show_contextual_information(db_manager):
     """, unsafe_allow_html=True)
     
     # Extremely compact brokerage section
-    st.markdown('<div style="margin: 2px 0 1px 0;"><strong style="color: #374151; font-size: 0.85rem;">🏢 Brokerage</strong></div>', unsafe_allow_html=True)
-    _render_brokerage_selection(db_manager)
-    
-    # Extremely compact configuration selection
     selected_brokerage = st.session_state.get('brokerage_name')
-    if selected_brokerage:
-        st.markdown('<div style="margin: 4px 0 1px 0;"><strong style="color: #374151; font-size: 0.85rem;">⚙️ Configuration</strong></div>', unsafe_allow_html=True)
-        _render_configuration_selection(db_manager, selected_brokerage)
+    selected_configuration = st.session_state.get('selected_configuration')
+    
+    # If both brokerage and configuration are selected, show compact combined view
+    if selected_brokerage and selected_configuration:
+        _render_compact_brokerage_config_display(db_manager, selected_brokerage, selected_configuration)
+    else:
+        # Show standard selection interfaces
+        st.markdown('<div style="margin: 2px 0 1px 0;"><strong style="color: #374151; font-size: 0.85rem;">🏢 Brokerage</strong></div>', unsafe_allow_html=True)
+        _render_brokerage_selection(db_manager)
+        
+        # Extremely compact configuration selection
+        if selected_brokerage:
+            st.markdown('<div style="margin: 4px 0 1px 0;"><strong style="color: #374151; font-size: 0.85rem;">⚙️ Configuration</strong></div>', unsafe_allow_html=True)
+            _render_configuration_selection(db_manager, selected_brokerage)
     
     # Extremely compact status section
-    if selected_brokerage and st.session_state.get('selected_configuration'):
+    if selected_brokerage and selected_configuration:
         st.markdown('<div style="margin: 4px 0 2px 0; border-top: 1px solid #e5e7eb;"></div>', unsafe_allow_html=True)
         _render_consolidated_status()
     
@@ -643,6 +650,54 @@ def _render_configuration_selection(db_manager, brokerage_name):
         st.session_state.configuration_type = 'new'
         st.info("💡 Create your first configuration")
         _render_new_configuration_form(brokerage_name, db_manager)
+
+def _render_compact_brokerage_config_display(db_manager, brokerage_name, configuration):
+    """Render compact display of both brokerage and configuration when both are selected"""
+    
+    # Compact combined display
+    st.markdown(f"""
+        <div style="
+            background: #f8fafc; 
+            border-radius: 6px; 
+            padding: 8px; 
+            margin: 2px 0 4px 0;
+            border: 1px solid #e2e8f0;
+        ">
+            <div style="
+                font-size: 0.85rem; 
+                color: #1e293b; 
+                font-weight: 600;
+                margin-bottom: 4px;
+            ">
+                🏢 {brokerage_name}
+            </div>
+            <div style="
+                font-size: 0.8rem; 
+                color: #475569; 
+                margin-bottom: 4px;
+            ">
+                ⚙️ {configuration['name']}
+            </div>
+            <div style="
+                font-size: 0.7rem; 
+                color: #64748b; 
+                display: flex;
+                justify-content: space-between;
+                align-items: center;
+            ">
+                <span>📁 {configuration.get('field_count', 0)} fields</span>
+                <span>📅 {configuration.get('created_at', '')[:10] if configuration.get('created_at') else 'N/A'}</span>
+            </div>
+        </div>
+    """, unsafe_allow_html=True)
+    
+    # Collapsible change options
+    with st.expander("🔄 Change Settings", expanded=False):
+        st.markdown("**Change Brokerage:**")
+        _render_brokerage_selection(db_manager)
+        
+        st.markdown("**Change Configuration:**")
+        _render_configuration_selection(db_manager, brokerage_name)
 
 def _render_consolidated_status():
     """Render compact, polished status information"""
