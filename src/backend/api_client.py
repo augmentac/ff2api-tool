@@ -70,40 +70,51 @@ class LoadsAPIClient:
                 # Load created successfully
                 try:
                     response_data = response.json()
+                    # Extract load number from response
+                    load_number = (response_data.get('loadNumber') or 
+                                 response_data.get('load', {}).get('loadNumber') or
+                                 response_data.get('id'))
                     return {
                         'success': True,
                         'data': response_data,
-                        'status_code': response.status_code
+                        'status_code': response.status_code,
+                        'load_number': load_number
                     }
                 except json.JSONDecodeError:
                     return {
                         'success': True,
                         'data': {'message': 'Load created successfully (no response data)'},
                         'status_code': response.status_code,
-                        'response_text': response.text
+                        'load_number': None  # Will be filled from original payload
                     }
             elif response.status_code == 200:
                 # Success with response data
                 try:
                     response_data = response.json()
+                    # Extract load number from response
+                    load_number = (response_data.get('loadNumber') or 
+                                 response_data.get('load', {}).get('loadNumber') or
+                                 response_data.get('id'))
                     return {
                         'success': True,
                         'data': response_data,
-                        'status_code': response.status_code
+                        'status_code': response.status_code,
+                        'load_number': load_number
                     }
                 except json.JSONDecodeError:
                     return {
                         'success': True,
                         'data': {'message': 'Load processed successfully (no response data)'},
                         'status_code': response.status_code,
-                        'response_text': response.text
+                        'load_number': None  # Will be filled from original payload
                     }
             elif response.status_code == 204:
                 # No content but successful
                 return {
                     'success': True,
                     'data': {'message': 'Load created successfully (no response data)'},
-                    'status_code': response.status_code
+                    'status_code': response.status_code,
+                    'load_number': None  # Will be filled from original payload
                 }
             elif response.status_code == 400:
                 # Bad request - invalid payload
@@ -144,16 +155,22 @@ class LoadsAPIClient:
                     if response.status_code in [200, 201, 204]:
                         try:
                             response_data = response.json()
+                            # Extract load number from response
+                            load_number = (response_data.get('loadNumber') or 
+                                         response_data.get('load', {}).get('loadNumber') or
+                                         response_data.get('id'))
                             return {
                                 'success': True,
                                 'data': response_data,
-                                'status_code': response.status_code
+                                'status_code': response.status_code,
+                                'load_number': load_number
                             }
                         except json.JSONDecodeError:
                             return {
                                 'success': True,
                                 'data': {'message': 'Load created successfully after token refresh'},
-                                'status_code': response.status_code
+                                'status_code': response.status_code,
+                                'load_number': None # Will be filled from original payload
                             }
                     else:
                         return {
@@ -320,6 +337,10 @@ class LoadsAPIClient:
             if response.status_code == 201:
                 try:
                     response_data = response.json()
+                    # Extract load number from response
+                    load_number = (response_data.get('loadNumber') or 
+                                 response_data.get('load', {}).get('loadNumber') or
+                                 response_data.get('id'))
                     return {'success': True, 'message': f'Connection successful! Load would be created.\nAPI Response: {response_data}'}
                 except (json.JSONDecodeError, ValueError) as json_error:
                     logging.warning(f"Could not parse HTTP 201 response as JSON: {json_error}")
@@ -327,6 +348,10 @@ class LoadsAPIClient:
             elif response.status_code == 200:
                 try:
                     response_data = response.json()
+                    # Extract load number from response
+                    load_number = (response_data.get('loadNumber') or 
+                                 response_data.get('load', {}).get('loadNumber') or
+                                 response_data.get('id'))
                     return {'success': True, 'message': f'Connection successful! API responded with: {response_data}'}
                 except (json.JSONDecodeError, ValueError) as json_error:
                     logging.warning(f"Could not parse HTTP 200 response as JSON: {json_error}")
@@ -340,6 +365,11 @@ class LoadsAPIClient:
                     # Retry the request with new token
                     response = self.session.post(f"{self.base_url}/v2/loads", json=test_payload, timeout=30)
                     if response.status_code in [200, 201, 204]:
+                        # Extract load number from response
+                        response_data = response.json()
+                        load_number = (response_data.get('loadNumber') or 
+                                     response_data.get('load', {}).get('loadNumber') or
+                                     response_data.get('id'))
                         return {'success': True, 'message': 'Connection successful! (Token refreshed)'}
                     else:
                         return {'success': False, 'message': 'Authentication failed even after token refresh. Please check your API key.'}
@@ -352,19 +382,46 @@ class LoadsAPIClient:
             elif response.status_code == 400:
                 try:
                     error_details = response.json()
-                    return {'success': True, 'message': f'Connection successful! (Bad request - authentication works, payload validation failed)\nDetails: {error_details}'}
-                except (json.JSONDecodeError, ValueError) as json_error:
-                    logging.warning(f"Could not parse HTTP 400 error response as JSON: {json_error}")
-                    return {'success': True, 'message': f'Connection successful! (Bad request - authentication works, payload validation failed)\nDetails: {response.text[:300]}'}
+                    return {
+                        'success': False,
+                        'error': f'Bad request: {error_details}',
+                        'status_code': response.status_code
+                    }
+                except json.JSONDecodeError:
+                    return {
+                        'success': False,
+                        'error': f'Bad request: {response.text}',
+                        'status_code': response.status_code
+                    }
             elif response.status_code == 422:
                 try:
                     error_details = response.json()
-                    return {'success': True, 'message': f'Connection successful! (Validation error - authentication works, data format issue)\nAPI Error Details: {error_details}'}
-                except (json.JSONDecodeError, ValueError) as json_error:
-                    logging.warning(f"Could not parse HTTP 422 error response as JSON: {json_error}")
-                    return {'success': True, 'message': f'Connection successful! (Validation error - authentication works, data format issue)\nRaw Error: {response.text[:300]}'}
+                    return {
+                        'success': False,
+                        'error': f'Validation error: {error_details}',
+                        'status_code': response.status_code
+                    }
+                except json.JSONDecodeError:
+                    return {
+                        'success': False,
+                        'error': f'Validation error: {response.text}',
+                        'status_code': response.status_code
+                    }
             else:
-                return {'success': False, 'message': f'HTTP {response.status_code}: {response.text[:200]}'}
+                # Other error codes
+                try:
+                    error_details = response.json()
+                    return {
+                        'success': False,
+                        'error': f'API error: {error_details}',
+                        'status_code': response.status_code
+                    }
+                except json.JSONDecodeError:
+                    return {
+                        'success': False,
+                        'error': f'API error: {response.text}',
+                        'status_code': response.status_code
+                    }
                 
         except requests.exceptions.Timeout:
             return {'success': False, 'message': 'Connection timeout. Check your network connection.'}

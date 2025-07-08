@@ -1624,6 +1624,29 @@ def process_data_enhanced(df, field_mappings, api_credentials, brokerage_name, d
             # Submit individual load
             result = client.create_load(payload)
             result['row_index'] = i + 1
+            
+            # Enhanced: Extract load number from successful responses
+            if result.get('success', False):
+                load_number = None
+                # Try to get load number from API response
+                if 'data' in result and isinstance(result['data'], dict):
+                    # Check various possible locations for load number
+                    load_number = (result['data'].get('loadNumber') or 
+                                 result['data'].get('load', {}).get('loadNumber') or
+                                 result['data'].get('id'))
+                
+                # Fallback to original payload if not in response
+                if not load_number and 'load' in payload:
+                    load_number = payload['load'].get('loadNumber')
+                
+                result['load_number'] = load_number or f"Load-{i+1}"
+            else:
+                # For failed loads, still try to get the intended load number
+                load_number = None
+                if 'load' in payload:
+                    load_number = payload['load'].get('loadNumber')
+                result['load_number'] = load_number or f"Load-{i+1}"
+            
             results.append(result)
             
             # Update counters
@@ -1710,6 +1733,50 @@ def process_data_enhanced(df, field_mappings, api_credentials, brokerage_name, d
         
         # Session info in compact format
         st.info(f"⏱️ Total processing time: {processing_time:.1f} seconds (0.35s per record) • 📋 Session ID: {session_id} | Configuration: {configuration_name}")
+        
+        # Load Results Dropdown - NEW FEATURE
+        if results:
+            with st.expander("📋 Load Results Summary", expanded=False):
+                st.markdown("**Load Creation Results:**")
+                
+                # Create results summary
+                load_results = []
+                for result in results:
+                    load_number = result.get('load_number', f"Row {result.get('row_index', 'Unknown')}")
+                    status = "✅ Success" if result.get('success', False) else "❌ Failed"
+                    error_msg = result.get('error', '') if not result.get('success', False) else ''
+                    
+                    load_results.append({
+                        'Load Number': load_number,
+                        'Status': status,
+                        'Error': error_msg[:50] + ('...' if len(error_msg) > 50 else '') if error_msg else ''
+                    })
+                
+                # Display as DataFrame for easy scanning
+                results_df = pd.DataFrame(load_results)
+                st.dataframe(results_df, use_container_width=True, hide_index=True)
+                
+                # Quick filter view
+                col1, col2 = st.columns(2)
+                with col1:
+                    successful_loads = [r for r in results if r.get('success', False)]
+                    if successful_loads:
+                        st.markdown("**✅ Successful Loads:**")
+                        for result in successful_loads[:10]:  # Show first 10
+                            load_number = result.get('load_number', f"Row {result.get('row_index', 'Unknown')}")
+                            st.markdown(f"• {load_number}")
+                        if len(successful_loads) > 10:
+                            st.caption(f"... and {len(successful_loads) - 10} more")
+                
+                with col2:
+                    failed_loads = [r for r in results if not r.get('success', False)]
+                    if failed_loads:
+                        st.markdown("**❌ Failed Loads:**")
+                        for result in failed_loads[:10]:  # Show first 10
+                            load_number = result.get('load_number', f"Row {result.get('row_index', 'Unknown')}")
+                            st.markdown(f"• {load_number}")
+                        if len(failed_loads) > 10:
+                            st.caption(f"... and {len(failed_loads) - 10} more")
         
         # Suggest backup after successful processing
         auto_backup_suggestion()
