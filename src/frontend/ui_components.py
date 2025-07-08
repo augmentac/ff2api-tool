@@ -1873,15 +1873,18 @@ def create_learning_enhanced_field_mapping_row(field: str, field_info: dict, df,
     """Create a field mapping row with learning indicators"""
     col1, col2, col3 = st.columns([3, 2, 1])
     
-    # Create stable but truly unique keys
-    key_suffix = "req" if required else "opt"
-    tab_index = st.session_state.get('mapping_tab_index', 0)
-    brokerage_key = (brokerage_name or 'default').replace(' ', '_').replace('.', '_').replace('-', '_')
+    # Create absolutely unique keys using session-based field indexing
+    if 'field_key_registry' not in st.session_state:
+        st.session_state.field_key_registry = {}
     
-    # Create a more robust field key with hash to ensure uniqueness
-    field_hash = hashlib.md5(field.encode()).hexdigest()[:8]
-    field_clean = re.sub(r'[^a-zA-Z0-9_]', '_', field)[:20]  # Limit length and clean
-    base_key = f"{key_suffix}_{tab_index}_{brokerage_key}_{field_clean}_{field_hash}"
+    # Generate a unique index for this field if it doesn't exist
+    field_registry_key = f"{field}_{required}_{st.session_state.get('mapping_tab_index', 0)}"
+    if field_registry_key not in st.session_state.field_key_registry:
+        st.session_state.field_key_registry[field_registry_key] = len(st.session_state.field_key_registry)
+    
+    field_index = st.session_state.field_key_registry[field_registry_key]
+    brokerage_safe = re.sub(r'[^a-zA-Z0-9]', '', brokerage_name or 'default')
+    base_key = f"lm_{field_index}_{brokerage_safe}_{st.session_state.get('mapping_tab_index', 0)}"
     
     with col1:
         # Get learning confidence if available
