@@ -63,9 +63,9 @@ class DataProcessor:
             "trackingEvents.0.eventSource": [
                 "MACROPOINT", "4KITES", "P44", "SMC3", "CARRIER_API", "PHONE_EMAIL", "TEXT", "OTHER"
             ],
-            # Contact role fields for carrier and brokerage
+            # Contact role fields - FIXED with correct API enum values
             "carrier.contacts.0.role": [
-                "ACCOUNT_MANAGER", "OPERATIONS_REP", "CARRIER_REP", "CUSTOMER_TEAM"
+                "DISPATCHER", "CARRIER_ADMIN"
             ],
             "brokerage.contacts.0.role": [
                 "ACCOUNT_MANAGER", "OPERATIONS_REP", "CARRIER_REP", "CUSTOMER_TEAM"
@@ -177,20 +177,16 @@ class DataProcessor:
             },
             # Contact role mappings for carrier and brokerage
             "carrier.contacts.0.role": {
-                "account manager": "ACCOUNT_MANAGER",
-                "account_manager": "ACCOUNT_MANAGER",
-                "am": "ACCOUNT_MANAGER",
-                "operations rep": "OPERATIONS_REP",
-                "operations_rep": "OPERATIONS_REP",
-                "ops rep": "OPERATIONS_REP",
-                "ops_rep": "OPERATIONS_REP",
-                "carrier rep": "CARRIER_REP",
-                "carrier_rep": "CARRIER_REP",
-                "customer team": "CUSTOMER_TEAM",
-                "customer_team": "CUSTOMER_TEAM",
-                "primary": "ACCOUNT_MANAGER",  # Common fallback mapping
-                "main": "ACCOUNT_MANAGER",
-                "default": "ACCOUNT_MANAGER"
+                "dispatcher": "DISPATCHER",
+                "dispatch": "DISPATCHER",
+                "carrier admin": "CARRIER_ADMIN",
+                "carrier_admin": "CARRIER_ADMIN",
+                "admin": "CARRIER_ADMIN",
+                "carrier administrator": "CARRIER_ADMIN",
+                "administrator": "CARRIER_ADMIN",
+                "primary": "DISPATCHER",  # Common fallback mapping
+                "main": "DISPATCHER",
+                "default": "DISPATCHER"
             },
             "brokerage.contacts.0.role": {
                 "account manager": "ACCOUNT_MANAGER",
