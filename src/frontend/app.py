@@ -658,7 +658,7 @@ def _render_configuration_selection(db_manager, brokerage_name):
                     pass
                 
                 # Clear workflow state
-                keys_to_clear = ['uploaded_df', 'uploaded_file_name', 'file_headers', 'validation_passed', 'header_comparison', 'field_mappings', 'mapping_tab_index']
+                keys_to_clear = ['uploaded_df', 'uploaded_file_name', 'file_headers', 'validation_passed', 'header_comparison', 'field_mappings', 'mapping_tab_index', 'processing_results', 'load_results']
                 for key in keys_to_clear:
                     if key in st.session_state:
                         del st.session_state[key]
@@ -1011,7 +1011,7 @@ def _render_smart_actions():
     col1, col2 = st.columns(2)
     with col1:
         if st.button("🔄 Reset", key="reset_action", use_container_width=True):
-            keys_to_clear = ['uploaded_df', 'uploaded_file_name', 'field_mappings', 'file_headers', 'validation_passed', 'header_comparison', 'mapping_tab_index']
+            keys_to_clear = ['uploaded_df', 'uploaded_file_name', 'field_mappings', 'file_headers', 'validation_passed', 'header_comparison', 'mapping_tab_index', 'processing_results', 'load_results']
             for key in keys_to_clear:
                 if key in st.session_state:
                     del st.session_state[key]
@@ -1343,7 +1343,7 @@ def _process_uploaded_file(uploaded_file):
     """Process the uploaded file and update session state"""
     try:
         # Clear processing state from previous session
-        keys_to_clear = ['processing_completed', 'validation_passed', 'field_mappings', 'header_comparison', 'mapping_tab_index']
+        keys_to_clear = ['processing_completed', 'validation_passed', 'field_mappings', 'header_comparison', 'mapping_tab_index', 'processing_results', 'load_results']
         for key in keys_to_clear:
             if key in st.session_state:
                 del st.session_state[key]
@@ -1516,7 +1516,7 @@ def _render_current_file_info():
         with col1:
             if st.button("📂 Upload Different File", key="change_file_btn", use_container_width=True):
                 # Clear file-related state
-                keys_to_clear = ['uploaded_df', 'uploaded_file_name', 'file_headers', 'validation_passed', 'header_comparison', 'field_mappings', 'mapping_tab_index', 'file_size', 'processing_completed']
+                keys_to_clear = ['uploaded_df', 'uploaded_file_name', 'file_headers', 'validation_passed', 'header_comparison', 'field_mappings', 'mapping_tab_index', 'file_size', 'processing_completed', 'processing_results', 'load_results']
                 for key in keys_to_clear:
                     if key in st.session_state:
                         del st.session_state[key]
@@ -1823,7 +1823,7 @@ def _render_processing_section(db_manager, data_processor):
             col1, col2, col3 = st.columns(3)
             with col1:
                 if st.button("🔄 Process Another File", type="primary", key="process_another_main", use_container_width=True):
-                    keys_to_clear = ['uploaded_df', 'uploaded_file_name', 'file_headers', 'validation_passed', 'header_comparison', 'field_mappings', 'mapping_tab_index', 'processing_completed']
+                    keys_to_clear = ['uploaded_df', 'uploaded_file_name', 'file_headers', 'validation_passed', 'header_comparison', 'field_mappings', 'mapping_tab_index', 'processing_completed', 'processing_results', 'load_results']
                     for key in keys_to_clear:
                         if key in st.session_state:
                             del st.session_state[key]
@@ -2233,6 +2233,20 @@ def process_data_enhanced(df, field_mappings, api_credentials, brokerage_name, d
         
         # Set processing completion flag for status bar
         st.session_state.processing_completed = True
+        
+        # Store processing results summary for Results & Downloads section
+        st.session_state.processing_results = {
+            'success_rate': success_rate,
+            'total_records': len(df),
+            'successful_records': successful_count,
+            'failed_records': failed_count,
+            'processing_time': processing_time,
+            'session_id': session_id,
+            'configuration_name': configuration_name
+        }
+        
+        # Store detailed load results for detailed results display
+        st.session_state.load_results = results
         
         # Load Results Dropdown - NEW FEATURE
         if results:
