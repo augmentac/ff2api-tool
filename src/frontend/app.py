@@ -746,75 +746,153 @@ def _render_consolidated_status():
     total_checks = len(readiness_checks)
     readiness_percentage = (ready_count / total_checks) * 100
     
-    # Fixed status determination with proper thresholds
+    # Modern status determination with updated terminology
     if readiness_percentage == 100:
-        status_text = "🔒 LOCKED"
-        status_color = "#10b981"
-        bg_color = "#f0fdf4"
+        status_text = "✅ COMPLETE"
+        status_color = "#059669"  # Modern emerald
+        bg_color = "linear-gradient(135deg, #ecfdf5 0%, #d1fae5 100%)"
+        border_gradient = "linear-gradient(135deg, #10b981 0%, #059669 100%)"
     elif readiness_percentage >= 80:  # Only show READY at 80%+ (4/5 checks)
         status_text = "✅ READY"
-        status_color = "#3b82f6"
-        bg_color = "#eff6ff"
+        status_color = "#2563eb"  # Modern blue
+        bg_color = "linear-gradient(135deg, #eff6ff 0%, #dbeafe 100%)"
+        border_gradient = "linear-gradient(135deg, #3b82f6 0%, #2563eb 100%)"
     elif readiness_percentage >= 60:  # Show ACTIVE at 60%+ (3/5 checks)
         status_text = "🔄 ACTIVE"
-        status_color = "#f59e0b"
-        bg_color = "#fffbeb"
+        status_color = "#d97706"  # Modern amber
+        bg_color = "linear-gradient(135deg, #fffbeb 0%, #fef3c7 100%)"
+        border_gradient = "linear-gradient(135deg, #f59e0b 0%, #d97706 100%)"
     elif readiness_percentage >= 40:  # Show PROGRESS at 40%+ (2/5 checks)
         status_text = "⚡ PROGRESS"
-        status_color = "#8b5cf6"
-        bg_color = "#f5f3ff"
+        status_color = "#7c3aed"  # Modern violet
+        bg_color = "linear-gradient(135deg, #f5f3ff 0%, #ede9fe 100%)"
+        border_gradient = "linear-gradient(135deg, #8b5cf6 0%, #7c3aed 100%)"
     else:
         status_text = "⚙️ SETUP"
         status_color = "#6b7280"
-        bg_color = "#f9fafb"
+        bg_color = "linear-gradient(135deg, #f9fafb 0%, #f3f4f6 100%)"
+        border_gradient = "linear-gradient(135deg, #6b7280 0%, #4b5563 100%)"
     
-    # Compact, clean status display
+    # Modern, polished status display with enhanced styling
     progress = ready_count / total_checks
+    progress_gradient = f"linear-gradient(90deg, {status_color} 0%, {status_color}dd 100%)"
+    glow_effect = f"0 0 10px {status_color}33" if readiness_percentage == 100 else "none"
     
     st.markdown(f"""
         <div style="
             background: {bg_color};
-            border-left: 2px solid {status_color};
-            border-radius: 2px;
-            padding: 3px 6px;
-            margin: 2px 0;
+            border: 1px solid {status_color}40;
+            border-radius: 12px;
+            padding: 12px;
+            margin: 8px 0;
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08), {glow_effect};
+            backdrop-filter: blur(10px);
+            transition: all 0.3s ease;
         ">
             <div style="
                 display: flex;
                 justify-content: space-between;
                 align-items: center;
-                margin-bottom: 2px;
-            ">
-                <strong style="color: {status_color}; font-size: 0.8rem;">📊 Status: {status_text}</strong>
-                <span style="color: {status_color}; font-size: 0.7rem; font-weight: 600;">{ready_count}/{total_checks}</span>
-            </div>
-            <div style="
-                background: rgba(255, 255, 255, 0.7);
-                height: 3px;
-                border-radius: 2px;
-                overflow: hidden;
+                margin-bottom: 8px;
             ">
                 <div style="
-                    background: {status_color};
+                    color: {status_color}; 
+                    font-size: 0.9rem; 
+                    font-weight: 500;
+                    letter-spacing: 0.025em;
+                ">📊 Status: {status_text}</div>
+                <div style="
+                    color: {status_color}; 
+                    font-size: 0.75rem; 
+                    font-weight: 600;
+                    background: rgba(255, 255, 255, 0.6);
+                    padding: 2px 6px;
+                    border-radius: 8px;
+                ">{ready_count}/{total_checks}</div>
+            </div>
+            <div style="
+                background: rgba(255, 255, 255, 0.4);
+                height: 6px;
+                border-radius: 6px;
+                overflow: hidden;
+                box-shadow: inset 0 1px 3px rgba(0, 0, 0, 0.1);
+            ">
+                <div style="
+                    background: {progress_gradient};
                     height: 100%;
                     width: {progress * 100}%;
-                    border-radius: 2px;
-                    transition: width 0.3s ease;
+                    border-radius: 6px;
+                    transition: width 0.5s cubic-bezier(0.4, 0, 0.2, 1);
+                    box-shadow: {glow_effect};
                 "></div>
             </div>
         </div>
     """, unsafe_allow_html=True)
     
-    # Compact guidance messaging
+    # Modern guidance messaging with enhanced styling
     if readiness_percentage == 100:
-        st.markdown('<div style="margin: 4px 0;"><span style="background: #d1fae5; color: #065f46; padding: 4px 8px; border-radius: 4px; font-size: 0.85rem;">🚀 Ready to process!</span></div>', unsafe_allow_html=True)
+        st.markdown('''
+            <div style="margin: 8px 0;">
+                <div style="
+                    background: linear-gradient(135deg, #d1fae5 0%, #a7f3d0 100%);
+                    color: #065f46; 
+                    padding: 8px 12px; 
+                    border-radius: 10px; 
+                    font-size: 0.9rem;
+                    font-weight: 500;
+                    box-shadow: 0 2px 8px rgba(16, 185, 129, 0.2);
+                    border: 1px solid rgba(16, 185, 129, 0.3);
+                    text-align: center;
+                    letter-spacing: 0.025em;
+                ">🚀 Ready to process!</div>
+            </div>
+        ''', unsafe_allow_html=True)
     elif readiness_percentage >= 80:
         if not file_uploaded:
-            st.markdown('<div style="margin: 4px 0;"><span style="background: #dbeafe; color: #1e40af; padding: 4px 8px; border-radius: 4px; font-size: 0.85rem;">💡 Upload a file to continue</span></div>', unsafe_allow_html=True)
+            st.markdown('''
+                <div style="margin: 6px 0;">
+                    <div style="
+                        background: linear-gradient(135deg, #dbeafe 0%, #bfdbfe 100%);
+                        color: #1e40af; 
+                        padding: 6px 10px; 
+                        border-radius: 8px; 
+                        font-size: 0.85rem;
+                        font-weight: 500;
+                        box-shadow: 0 2px 6px rgba(59, 130, 246, 0.15);
+                        border: 1px solid rgba(59, 130, 246, 0.2);
+                    ">💡 Upload a file to continue</div>
+                </div>
+            ''', unsafe_allow_html=True)
         elif not validation_passed:
-            st.markdown('<div style="margin: 4px 0;"><span style="background: #dbeafe; color: #1e40af; padding: 4px 8px; border-radius: 4px; font-size: 0.85rem;">💡 Validate your data mapping</span></div>', unsafe_allow_html=True)
+            st.markdown('''
+                <div style="margin: 6px 0;">
+                    <div style="
+                        background: linear-gradient(135deg, #dbeafe 0%, #bfdbfe 100%);
+                        color: #1e40af; 
+                        padding: 6px 10px; 
+                        border-radius: 8px; 
+                        font-size: 0.85rem;
+                        font-weight: 500;
+                        box-shadow: 0 2px 6px rgba(59, 130, 246, 0.15);
+                        border: 1px solid rgba(59, 130, 246, 0.2);
+                    ">💡 Validate your data mapping</div>
+                </div>
+            ''', unsafe_allow_html=True)
         else:
-            st.markdown('<div style="margin: 4px 0;"><span style="background: #d1fae5; color: #065f46; padding: 4px 8px; border-radius: 4px; font-size: 0.85rem;">🎯 Almost ready!</span></div>', unsafe_allow_html=True)
+            st.markdown('''
+                <div style="margin: 6px 0;">
+                    <div style="
+                        background: linear-gradient(135deg, #d1fae5 0%, #a7f3d0 100%);
+                        color: #065f46; 
+                        padding: 6px 10px; 
+                        border-radius: 8px; 
+                        font-size: 0.85rem;
+                        font-weight: 500;
+                        box-shadow: 0 2px 6px rgba(16, 185, 129, 0.15);
+                        border: 1px solid rgba(16, 185, 129, 0.2);
+                    ">🎯 Almost ready!</div>
+                </div>
+            ''', unsafe_allow_html=True)
     elif readiness_percentage >= 60:
         missing_items = []
         if not api_connected:
@@ -823,11 +901,50 @@ def _render_consolidated_status():
             missing_items.append("field mappings")
         if not file_uploaded:
             missing_items.append("file upload")
-        st.markdown(f'<div style="margin: 1px 0;"><span style="background: #fef3c7; color: #92400e; padding: 1px 4px; border-radius: 2px; font-size: 0.7rem;">⚡ Missing: {", ".join(missing_items)}</span></div>', unsafe_allow_html=True)
+        st.markdown(f'''
+            <div style="margin: 4px 0;">
+                <div style="
+                    background: linear-gradient(135deg, #fef3c7 0%, #fde68a 100%);
+                    color: #92400e; 
+                    padding: 4px 8px; 
+                    border-radius: 6px; 
+                    font-size: 0.75rem;
+                    font-weight: 500;
+                    box-shadow: 0 1px 4px rgba(245, 158, 11, 0.15);
+                    border: 1px solid rgba(245, 158, 11, 0.2);
+                ">⚡ Missing: {", ".join(missing_items)}</div>
+            </div>
+        ''', unsafe_allow_html=True)
     elif readiness_percentage >= 40:
-        st.markdown('<div style="margin: 1px 0;"><span style="background: #ede9fe; color: #5b21b6; padding: 1px 4px; border-radius: 2px; font-size: 0.7rem;">📈 Making progress</span></div>', unsafe_allow_html=True)
+        st.markdown('''
+            <div style="margin: 4px 0;">
+                <div style="
+                    background: linear-gradient(135deg, #ede9fe 0%, #ddd6fe 100%);
+                    color: #5b21b6; 
+                    padding: 4px 8px; 
+                    border-radius: 6px; 
+                    font-size: 0.75rem;
+                    font-weight: 500;
+                    box-shadow: 0 1px 4px rgba(139, 92, 246, 0.15);
+                    border: 1px solid rgba(139, 92, 246, 0.2);
+                ">📈 Making progress</div>
+            </div>
+        ''', unsafe_allow_html=True)
     else:
-        st.markdown('<div style="margin: 1px 0;"><span style="background: #f3f4f6; color: #374151; padding: 1px 4px; border-radius: 2px; font-size: 0.7rem;">⚙️ Start by connecting API</span></div>', unsafe_allow_html=True)
+        st.markdown('''
+            <div style="margin: 4px 0;">
+                <div style="
+                    background: linear-gradient(135deg, #f3f4f6 0%, #e5e7eb 100%);
+                    color: #374151; 
+                    padding: 4px 8px; 
+                    border-radius: 6px; 
+                    font-size: 0.75rem;
+                    font-weight: 500;
+                    box-shadow: 0 1px 4px rgba(107, 114, 128, 0.15);
+                    border: 1px solid rgba(107, 114, 128, 0.2);
+                ">⚙️ Start by connecting API</div>
+            </div>
+        ''', unsafe_allow_html=True)
     
     # Compact details
     with st.expander("📋 Status Details"):
