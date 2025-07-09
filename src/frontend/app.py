@@ -1703,14 +1703,13 @@ def _render_smart_mapping_section(db_manager, data_processor):
     if 'mapping_section_expanded' not in st.session_state:
         st.session_state.mapping_section_expanded = not st.session_state.get('field_mappings')
     
-    # Prevent mapping section from expanding during processing or processing failures
+    # Prevent mapping section from expanding during active processing only
     # This fixes the bug where Process Data click causes mapping section to open
     is_processing_active = st.session_state.get('processing_in_progress', False)
-    validation_passed = st.session_state.get('validation_passed', False)
+    processing_completed = st.session_state.get('processing_completed', False)
     
-    # If validation has passed, user shouldn't need to return to mapping
-    if validation_passed:
-        st.session_state.mapping_section_expanded = False
+    # Only prevent expansion during actual processing, not after validation
+    # Users should be able to return to mapping even after validation has passed
     
     with st.expander("🔗 **Field Mapping**", expanded=st.session_state.mapping_section_expanded and not is_processing_active):
         st.caption("Map your CSV columns to API fields")
