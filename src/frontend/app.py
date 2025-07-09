@@ -733,6 +733,7 @@ def _render_consolidated_status():
     file_uploaded = 'uploaded_df' in st.session_state
     headers_validated = st.session_state.get('header_comparison', {}).get('status') == 'identical'
     validation_passed = st.session_state.get('validation_passed', False)
+    processing_completed = st.session_state.get('processing_completed', False)
     
     readiness_checks = [
         ('API Connected', api_connected),
@@ -746,32 +747,40 @@ def _render_consolidated_status():
     total_checks = len(readiness_checks)
     readiness_percentage = (ready_count / total_checks) * 100
     
-    # Modern status determination with updated terminology
-    if readiness_percentage == 100:
-        status_text = "✅ COMPLETE"
+    # Override status if processing is completed
+    if processing_completed:
+        readiness_percentage = 100
+        status_text = "🎉 PROCESSED"
         status_color = "#059669"  # Modern emerald
         bg_color = "linear-gradient(135deg, #ecfdf5 0%, #d1fae5 100%)"
         border_gradient = "linear-gradient(135deg, #10b981 0%, #059669 100%)"
-    elif readiness_percentage >= 80:  # Only show READY at 80%+ (4/5 checks)
-        status_text = "✅ READY"
-        status_color = "#2563eb"  # Modern blue
-        bg_color = "linear-gradient(135deg, #eff6ff 0%, #dbeafe 100%)"
-        border_gradient = "linear-gradient(135deg, #3b82f6 0%, #2563eb 100%)"
-    elif readiness_percentage >= 60:  # Show ACTIVE at 60%+ (3/5 checks)
-        status_text = "🔄 ACTIVE"
-        status_color = "#d97706"  # Modern amber
-        bg_color = "linear-gradient(135deg, #fffbeb 0%, #fef3c7 100%)"
-        border_gradient = "linear-gradient(135deg, #f59e0b 0%, #d97706 100%)"
-    elif readiness_percentage >= 40:  # Show PROGRESS at 40%+ (2/5 checks)
-        status_text = "⚡ PROGRESS"
-        status_color = "#7c3aed"  # Modern violet
-        bg_color = "linear-gradient(135deg, #f5f3ff 0%, #ede9fe 100%)"
-        border_gradient = "linear-gradient(135deg, #8b5cf6 0%, #7c3aed 100%)"
     else:
-        status_text = "⚙️ SETUP"
-        status_color = "#6b7280"
-        bg_color = "linear-gradient(135deg, #f9fafb 0%, #f3f4f6 100%)"
-        border_gradient = "linear-gradient(135deg, #6b7280 0%, #4b5563 100%)"
+        # Modern status determination with updated terminology
+        if readiness_percentage == 100:
+            status_text = "✅ COMPLETE"
+            status_color = "#059669"  # Modern emerald
+            bg_color = "linear-gradient(135deg, #ecfdf5 0%, #d1fae5 100%)"
+            border_gradient = "linear-gradient(135deg, #10b981 0%, #059669 100%)"
+        elif readiness_percentage >= 80:  # Only show READY at 80%+ (4/5 checks)
+            status_text = "✅ READY"
+            status_color = "#2563eb"  # Modern blue
+            bg_color = "linear-gradient(135deg, #eff6ff 0%, #dbeafe 100%)"
+            border_gradient = "linear-gradient(135deg, #3b82f6 0%, #2563eb 100%)"
+        elif readiness_percentage >= 60:  # Show ACTIVE at 60%+ (3/5 checks)
+            status_text = "🔄 ACTIVE"
+            status_color = "#d97706"  # Modern amber
+            bg_color = "linear-gradient(135deg, #fffbeb 0%, #fef3c7 100%)"
+            border_gradient = "linear-gradient(135deg, #f59e0b 0%, #d97706 100%)"
+        elif readiness_percentage >= 40:  # Show PROGRESS at 40%+ (2/5 checks)
+            status_text = "⚡ PROGRESS"
+            status_color = "#7c3aed"  # Modern violet
+            bg_color = "linear-gradient(135deg, #f5f3ff 0%, #ede9fe 100%)"
+            border_gradient = "linear-gradient(135deg, #8b5cf6 0%, #7c3aed 100%)"
+        else:
+            status_text = "⚙️ SETUP"
+            status_color = "#6b7280"
+            bg_color = "linear-gradient(135deg, #f9fafb 0%, #f3f4f6 100%)"
+            border_gradient = "linear-gradient(135deg, #6b7280 0%, #4b5563 100%)"
     
     # Modern, polished status display with enhanced styling
     progress = ready_count / total_checks
@@ -808,7 +817,7 @@ def _render_consolidated_status():
                     background: rgba(255, 255, 255, 0.6);
                     padding: 2px 6px;
                     border-radius: 8px;
-                ">{ready_count}/{total_checks}</div>
+">{"5/5" if processing_completed else f"{ready_count}/{total_checks}"}</div>
             </div>
             <div style="
                 background: rgba(255, 255, 255, 0.4);
@@ -830,7 +839,24 @@ def _render_consolidated_status():
     """, unsafe_allow_html=True)
     
     # Modern guidance messaging with enhanced styling
-    if readiness_percentage == 100:
+    if processing_completed:
+        st.markdown('''
+            <div style="margin: 8px 0;">
+                <div style="
+                    background: linear-gradient(135deg, #d1fae5 0%, #a7f3d0 100%);
+                    color: #065f46; 
+                    padding: 8px 12px; 
+                    border-radius: 10px; 
+                    font-size: 0.9rem;
+                    font-weight: 500;
+                    box-shadow: 0 2px 8px rgba(16, 185, 129, 0.2);
+                    border: 1px solid rgba(16, 185, 129, 0.3);
+                    text-align: center;
+                    letter-spacing: 0.025em;
+                ">🎉 Processing complete!</div>
+            </div>
+        ''', unsafe_allow_html=True)
+    elif readiness_percentage == 100:
         st.markdown('''
             <div style="margin: 8px 0;">
                 <div style="
@@ -951,6 +977,9 @@ def _render_consolidated_status():
         for name, is_ready in readiness_checks:
             icon = "✅" if is_ready else "⏳"
             st.caption(f"{icon} {name}")
+        
+        if processing_completed:
+            st.caption("✅ Processing Completed")
         
         if config.get('created_at'):
             st.caption(f"📅 Created: {config['created_at'][:10]}")
@@ -1796,7 +1825,7 @@ def _render_processing_section(db_manager, data_processor):
                 col1, col2 = st.columns(2)
                 with col1:
                     if st.button("🔄 Process Another", type="primary", key="process_another"):
-                        keys_to_clear = ['uploaded_df', 'uploaded_file_name', 'file_headers', 'validation_passed', 'header_comparison', 'field_mappings', 'mapping_tab_index']
+                        keys_to_clear = ['uploaded_df', 'uploaded_file_name', 'file_headers', 'validation_passed', 'header_comparison', 'field_mappings', 'mapping_tab_index', 'processing_completed']
                         for key in keys_to_clear:
                             if key in st.session_state:
                                 del st.session_state[key]
@@ -2064,6 +2093,9 @@ def process_data_enhanced(df, field_mappings, api_credentials, brokerage_name, d
         
         # Session info in compact format
         st.info(f"⏱️ Total processing time: {processing_time:.1f} seconds (0.35s per record) • 📋 Session ID: {session_id} | Configuration: {configuration_name}")
+        
+        # Set processing completion flag for status bar
+        st.session_state.processing_completed = True
         
         # Load Results Dropdown - NEW FEATURE
         if results:
