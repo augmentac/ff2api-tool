@@ -2149,3 +2149,83 @@ def cleanup_learning_data_interface(db_manager, data_processor):
                 st.success(result['message'])
             else:
                 st.error(f"Cleanup failed: {result['error']}")
+
+def generate_sample_api_preview(df: pd.DataFrame, field_mappings: Dict[str, str], data_processor) -> Dict[str, Any]:
+    """Generate a sample API preview from the first row of mapped data"""
+    
+    # If no mappings, return empty structure
+    if not field_mappings:
+        return {
+            "message": "No field mappings configured yet",
+            "preview": {
+                "load": {},
+                "customer": {},
+                "brokerage": {}
+            }
+        }
+    
+    # If DataFrame is empty, return empty structure
+    if df.empty:
+        return {
+            "message": "No data available for preview",
+            "preview": {
+                "load": {},
+                "customer": {},
+                "brokerage": {}
+            }
+        }
+    
+    try:
+        # Get the first row for preview
+        first_row_df = df.head(1).copy()
+        
+        # Apply field mappings to the first row
+        mapped_df, mapping_errors = data_processor.apply_mapping(first_row_df, field_mappings)
+        
+        if mapping_errors:
+            return {
+                "message": f"Mapping errors found: {', '.join(mapping_errors)}",
+                "preview": {
+                    "load": {},
+                    "customer": {},
+                    "brokerage": {}
+                }
+            }
+        
+        # Format the mapped data for API (this will give us the proper nested structure)
+        api_preview_list = data_processor.format_for_api(mapped_df)
+        
+        if api_preview_list:
+            api_preview = api_preview_list[0]  # Get the first (and only) preview
+            
+            # Clean up the preview for display
+            cleaned_preview = {}
+            for key, value in api_preview.items():
+                if value is not None and value != "" and value != {} and value != []:
+                    cleaned_preview[key] = value
+            
+            return {
+                "message": "Sample API preview generated from first row",
+                "preview": cleaned_preview,
+                "mapped_fields": list(field_mappings.keys()),
+                "source_row": first_row_df.iloc[0].to_dict()
+            }
+        else:
+            return {
+                "message": "No valid API preview could be generated",
+                "preview": {
+                    "load": {},
+                    "customer": {},
+                    "brokerage": {}
+                }
+            }
+            
+    except Exception as e:
+        return {
+            "message": f"Error generating API preview: {str(e)}",
+            "preview": {
+                "load": {},
+                "customer": {},
+                "brokerage": {}
+            }
+        }
