@@ -1879,19 +1879,12 @@ def _render_results_summary_section():
         results = st.session_state.get('processing_results', {})
         
         if results:
-            # Success message with key metrics
+            # Get key metrics
             success_rate = results.get('success_rate', 0)
             total_records = results.get('total_records', 0)
             successful_records = results.get('successful_records', 0)
             failed_records = results.get('failed_records', 0)
             processing_time = results.get('processing_time', 0)
-            
-            if success_rate == 100:
-                st.success(f"🎉 Perfect! All {total_records} records processed successfully")
-            elif success_rate >= 90:
-                st.warning(f"⚠️ {successful_records}/{total_records} records successful ({success_rate:.0f}%)")
-            else:
-                st.error(f"❌ Only {successful_records}/{total_records} records successful ({success_rate:.0f}%)")
             
             # Performance metrics
             col1, col2, col3, col4 = st.columns(4)
