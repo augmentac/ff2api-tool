@@ -911,7 +911,7 @@ def create_enhanced_mapping_interface(df, existing_mappings, data_processor):
             mapped_required_after = len([f for f in required_fields.keys() if f in updated_mappings])
             st.success(f"Applied {len(updated_mappings)} mappings! ({mapped_required_after}/{total_required} required fields mapped)")
             if mapped_required_after == total_required:
-                st.session_state.current_step = max(st.session_state.current_step, 5)
+                st.session_state.current_step = max(st.session_state.get('current_step', 1), 5)
             st.rerun()
     
     with col2:
@@ -936,7 +936,7 @@ def create_enhanced_mapping_interface(df, existing_mappings, data_processor):
             st.session_state.field_mappings = updated_mappings
             mapped_required_after = len([f for f in required_fields.keys() if f in updated_mappings])
             if mapped_required_after == total_required:
-                st.session_state.current_step = max(st.session_state.current_step, 5)
+                st.session_state.current_step = max(st.session_state.get('current_step', 1), 5)
                 st.success("✅ Mappings saved! Moving to validation step...")
                 st.rerun()
             else:
@@ -1835,7 +1835,7 @@ def create_learning_enhanced_mapping_interface(df, existing_mappings, data_proce
             st.success(f"Applied {len(current_mappings)} mappings! ({mapped_required_after}/{total_required} required fields mapped)")
             
             if mapped_required_after == total_required:
-                st.session_state.current_step = max(st.session_state.current_step, 5)
+                st.session_state.current_step = max(st.session_state.get('current_step', 1), 5)
     
     with col2:
         if st.button("🧠 Refresh Suggestions", use_container_width=True, 
@@ -1892,7 +1892,7 @@ def create_learning_enhanced_mapping_interface(df, existing_mappings, data_proce
             mapped_required_after = len([f for f in required_fields.keys() if f in current_mappings])
             
             if mapped_required_after == total_required:
-                st.session_state.current_step = max(st.session_state.current_step, 5)
+                st.session_state.current_step = max(st.session_state.get('current_step', 1), 5)
                 st.success("✅ Mappings saved! Moving to validation step...")
                 st.rerun()
             else:
