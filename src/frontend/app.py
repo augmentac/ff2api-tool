@@ -845,15 +845,14 @@ def _render_consolidated_status():
                 <div style="
                     background: linear-gradient(135deg, #d1fae5 0%, #a7f3d0 100%);
                     color: #065f46; 
-                    padding: 8px 12px; 
-                    border-radius: 10px; 
-                    font-size: 0.9rem;
+                    padding: 6px 10px; 
+                    border-radius: 8px; 
+                    font-size: 0.85rem;
                     font-weight: 500;
-                    box-shadow: 0 2px 8px rgba(16, 185, 129, 0.2);
-                    border: 1px solid rgba(16, 185, 129, 0.3);
+                    box-shadow: 0 2px 6px rgba(16, 185, 129, 0.15);
+                    border: 1px solid rgba(16, 185, 129, 0.2);
                     text-align: center;
-                    letter-spacing: 0.025em;
-                ">🎉 Processing complete!</div>
+                ">✅ Complete</div>
             </div>
         ''', unsafe_allow_html=True)
     elif readiness_percentage == 100:
@@ -1462,6 +1461,10 @@ def _render_workflow_with_progress(db_manager, data_processor):
     
     if st.session_state.get('validation_passed'):
         _render_processing_section(db_manager, data_processor)
+        
+        # Show results summary after processing completion  
+        if st.session_state.get('processing_completed'):
+            _render_results_summary_section()
     
     # Learning analytics dashboard
     if st.session_state.get('show_learning_analytics'):
@@ -1788,7 +1791,7 @@ def _render_validation_section(db_manager, data_processor):
 def _render_processing_section(db_manager, data_processor):
     """Processing section with enhanced UX"""
     
-    with st.expander("🚀 **Process & Submit**", expanded=True):
+    with st.expander("🚀 **Process & Submit**", expanded=not st.session_state.get('processing_completed', False)):
         st.caption("Process your data and submit to the API")
         
         df = st.session_state.uploaded_df
@@ -1805,41 +1808,169 @@ def _render_processing_section(db_manager, data_processor):
         with col3:
             st.metric("Status", "Ready ✅")
         
-        # Process button
-        if st.button("🚀 Process Data", type="primary", key="process_btn", use_container_width=True):
-            try:
-                session_id = st.session_state.get('session_id', 'unknown')
-                
-                result = process_data_enhanced(
-                    df, field_mappings, api_credentials, brokerage_name, 
-                    data_processor, db_manager, session_id
-                )
-                
-                # Update learning system with processing results
-                if result and 'success_rate' in result:
-                    update_learning_with_processing_results(
-                        session_id, result['success_rate'], data_processor, db_manager
+        # Process button or next-step actions based on completion state
+        if st.session_state.get('processing_completed', False):
+            # Show next-step actions prominently after processing
+            st.markdown("### ⚡ Next Steps")
+            st.caption("Choose your next action")
+            
+            col1, col2, col3 = st.columns(3)
+            with col1:
+                if st.button("🔄 Process Another File", type="primary", key="process_another_main", use_container_width=True):
+                    keys_to_clear = ['uploaded_df', 'uploaded_file_name', 'file_headers', 'validation_passed', 'header_comparison', 'field_mappings', 'mapping_tab_index', 'processing_completed']
+                    for key in keys_to_clear:
+                        if key in st.session_state:
+                            del st.session_state[key]
+                    st.rerun()
+            
+            with col2:
+                if st.button("📥 Download Results", key="download_results_main", use_container_width=True):
+                    # Show download options
+                    st.info("💡 Scroll down to find download options in the results section")
+            
+            with col3:
+                if st.button("🏠 Start Over", key="start_over_main", use_container_width=True):
+                    for key in list(st.session_state.keys()):
+                        if key not in ['sidebar_state']:  # Keep sidebar state
+                            del st.session_state[key]
+                    st.rerun()
+        else:
+            # Show original process button
+            if st.button("🚀 Process Data", type="primary", key="process_btn", use_container_width=True):
+                try:
+                    session_id = st.session_state.get('session_id', 'unknown')
+                    
+                    result = process_data_enhanced(
+                        df, field_mappings, api_credentials, brokerage_name, 
+                        data_processor, db_manager, session_id
                     )
+                    
+                    # Update learning system with processing results
+                    if result and 'success_rate' in result:
+                        update_learning_with_processing_results(
+                            session_id, result['success_rate'], data_processor, db_manager
+                        )
+                    
+                    # After processing, the UI will automatically update to show next steps
+                    
+                except Exception as e:
+                    st.error(f"❌ Processing failed: {str(e)}")
+
+def _render_results_summary_section():
+    """Show results summary and download options after processing completion"""
+    
+    with st.expander("📋 **Results & Downloads**", expanded=True):
+        st.caption("Processing complete - view results and download options")
+        
+        # Get processing results from session state
+        results = st.session_state.get('processing_results', {})
+        
+        if results:
+            # Success message with key metrics
+            success_rate = results.get('success_rate', 0)
+            total_records = results.get('total_records', 0)
+            successful_records = results.get('successful_records', 0)
+            failed_records = results.get('failed_records', 0)
+            processing_time = results.get('processing_time', 0)
+            
+            if success_rate == 100:
+                st.success(f"🎉 Perfect! All {total_records} records processed successfully")
+            elif success_rate >= 90:
+                st.warning(f"⚠️ {successful_records}/{total_records} records successful ({success_rate:.0f}%)")
+            else:
+                st.error(f"❌ Only {successful_records}/{total_records} records successful ({success_rate:.0f}%)")
+            
+            # Performance metrics
+            col1, col2, col3, col4 = st.columns(4)
+            with col1:
+                st.metric("Total Records", f"{total_records:,}")
+            with col2:
+                st.metric("Success Rate", f"{success_rate:.0f}%")
+            with col3:
+                st.metric("Processing Time", f"{processing_time:.1f}s")
+            with col4:
+                avg_time = processing_time / total_records if total_records > 0 else 0
+                st.metric("Per Record", f"{avg_time:.2f}s")
+            
+            # Download options
+            st.markdown("### 📥 Download Options")
+            col1, col2 = st.columns(2)
+            
+            with col1:
+                if st.button("📄 Download Processing Report", key="download_report", use_container_width=True):
+                    # Create processing report
+                    report_data = {
+                        'Processing Summary': {
+                            'Total Records': total_records,
+                            'Successful': successful_records,
+                            'Failed': failed_records,
+                            'Success Rate': f"{success_rate:.1f}%",
+                            'Processing Time': f"{processing_time:.1f} seconds",
+                            'Average per Record': f"{avg_time:.3f} seconds"
+                        },
+                        'Session Info': {
+                            'Session ID': results.get('session_id', 'Unknown'),
+                            'Configuration': results.get('configuration_name', 'Unknown'),
+                            'Timestamp': datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+                        }
+                    }
+                    
+                    import json
+                    report_json = json.dumps(report_data, indent=2)
+                    st.download_button(
+                        label="💾 Save Report",
+                        data=report_json,
+                        file_name=f"processing_report_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json",
+                        mime="application/json"
+                    )
+            
+            with col2:
+                if st.button("📊 View Detailed Results", key="show_details", use_container_width=True):
+                    st.session_state.show_detailed_results = not st.session_state.get('show_detailed_results', False)
+            
+            # Show detailed results if requested
+            if st.session_state.get('show_detailed_results', False):
+                st.markdown("### 📋 Detailed Results")
                 
-                # Post-processing actions
-                col1, col2 = st.columns(2)
-                with col1:
-                    if st.button("🔄 Process Another", type="primary", key="process_another"):
-                        keys_to_clear = ['uploaded_df', 'uploaded_file_name', 'file_headers', 'validation_passed', 'header_comparison', 'field_mappings', 'mapping_tab_index', 'processing_completed']
-                        for key in keys_to_clear:
-                            if key in st.session_state:
-                                del st.session_state[key]
-                        st.rerun()
-                
-                with col2:
-                    if st.button("🏠 Start Over", key="start_over"):
-                        for key in list(st.session_state.keys()):
-                            if key not in ['sidebar_state']:  # Keep sidebar state
-                                del st.session_state[key]
-                        st.rerun()
-                
-            except Exception as e:
-                st.error(f"❌ Processing failed: {str(e)}")
+                # Show load results if available
+                if 'load_results' in st.session_state:
+                    load_results = st.session_state.load_results
+                    
+                    if successful_records > 0:
+                        st.markdown("**✅ Successful Loads:**")
+                        successful_loads = [r for r in load_results if r.get('success', False)]
+                        if successful_loads:
+                            success_df = pd.DataFrame([
+                                {
+                                    'Load Number': r.get('load_number', 'Unknown'),
+                                    'Row': r.get('row_index', 'Unknown'),
+                                    'Status': '✅ Success'
+                                }
+                                for r in successful_loads[:20]  # Show first 20
+                            ])
+                            st.dataframe(success_df, use_container_width=True, hide_index=True)
+                            
+                            if len(successful_loads) > 20:
+                                st.caption(f"... and {len(successful_loads) - 20} more successful loads")
+                    
+                    if failed_records > 0:
+                        st.markdown("**❌ Failed Loads:**")
+                        failed_loads = [r for r in load_results if not r.get('success', False)]
+                        if failed_loads:
+                            failed_df = pd.DataFrame([
+                                {
+                                    'Load Number': r.get('load_number', 'Unknown'),
+                                    'Row': r.get('row_index', 'Unknown'),
+                                    'Error': r.get('error', 'Unknown error')[:100] + ('...' if len(r.get('error', '')) > 100 else '')
+                                }
+                                for r in failed_loads[:20]  # Show first 20
+                            ])
+                            st.dataframe(failed_df, use_container_width=True, hide_index=True)
+                            
+                            if len(failed_loads) > 20:
+                                st.caption(f"... and {len(failed_loads) - 20} more failed loads")
+        else:
+            st.info("No processing results available")
 
 def _save_configuration(db_manager, field_mappings, file_headers):
     """Save configuration with field mappings"""
