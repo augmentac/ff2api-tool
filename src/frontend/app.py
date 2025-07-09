@@ -1417,10 +1417,8 @@ def _validate_headers_with_config(file_headers):
 def _render_workflow_with_progress(db_manager, data_processor):
     """Show workflow sections with progress bar after file upload"""
     
-    # Show compact status info
-    if st.session_state.get('validation_passed'):
-        st.success("✅ Data validated and ready to process")
-    elif st.session_state.get('uploaded_df') is not None:
+    # Show compact status info based on current state
+    if st.session_state.get('uploaded_df') is not None and not st.session_state.get('validation_passed'):
         if st.session_state.get('field_mappings'):
             # Check if we have real mappings
             field_mappings = st.session_state.get('field_mappings', {})
