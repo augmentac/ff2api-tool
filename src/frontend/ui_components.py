@@ -1647,13 +1647,28 @@ def create_learning_enhanced_mapping_interface(df, existing_mappings, data_proce
     # Get the API schema
     api_schema = get_full_api_schema()
     
-    # Initialize or get existing mappings - prioritize current session state
-    if 'field_mappings' in st.session_state and st.session_state.field_mappings:
-        field_mappings = st.session_state.field_mappings.copy()
-    elif existing_mappings:
+    # Initialize mappings - start with existing_mappings as base, then layer session state on top
+    field_mappings = {}
+    
+    # First, load any existing mappings from database as the foundation
+    if existing_mappings:
         field_mappings = existing_mappings.copy()
-    else:
-        field_mappings = {}
+    
+    # Then, merge any session state changes on top (preserving user's current session work)
+    if 'field_mappings' in st.session_state and st.session_state.field_mappings:
+        # Only update fields that exist in session state, don't replace entire mapping
+        for field, mapping in st.session_state.field_mappings.items():
+            field_mappings[field] = mapping
+    
+    # If we have existing mappings but no session state, initialize session state with complete mappings
+    if existing_mappings and not st.session_state.get('field_mappings'):
+        st.session_state.field_mappings = field_mappings.copy()
+    
+    # Debug information to track mapping initialization
+    if existing_mappings:
+        st.caption(f"📋 Loaded {len(existing_mappings)} mappings from database configuration")
+        if len(field_mappings) != len(existing_mappings):
+            st.caption(f"🔄 Merged with session state: {len(field_mappings)} total mappings")
     
     # Generate smart suggestions with learning enhancement
     suggested_mappings = {}
@@ -1737,12 +1752,12 @@ def create_learning_enhanced_mapping_interface(df, existing_mappings, data_proce
                 # Keep the mapping section expanded when switching tabs
                 st.session_state.mapping_section_expanded = True
     
-    # Tab content - ensure updated_mappings stays in sync with session state
-    # Since field rows update session state immediately, we need to sync back
-    if 'field_mappings' in st.session_state:
-        updated_mappings = st.session_state.field_mappings.copy()
-    else:
-        updated_mappings = field_mappings.copy()
+    # Tab content - use the properly merged field_mappings as the working set
+    # This ensures we maintain both database mappings and session changes
+    updated_mappings = field_mappings.copy()
+    
+    # Ensure session state is kept in sync with our complete mapping set
+    st.session_state.field_mappings = updated_mappings.copy()
     
     if st.session_state.mapping_tab_index == 0:
         # Required Fields Tab
@@ -2005,8 +2020,8 @@ def create_learning_enhanced_field_mapping_row(field: str, field_info: dict, df,
     
     with col2:
         # Column selection with learning highlights
-        # Check session state first, then fall back to updated_mappings
-        current_mapping = st.session_state.get('field_mappings', {}).get(field, None) or updated_mappings.get(field, None)
+        # Use updated_mappings as primary source (which includes both database and session state)
+        current_mapping = updated_mappings.get(field, None)
         column_options = ["None"] + list(df.columns)
         
         if current_mapping and current_mapping.startswith('MANUAL_VALUE:'):
@@ -2029,8 +2044,10 @@ def create_learning_enhanced_field_mapping_row(field: str, field_info: dict, df,
             updated_mappings[field] = selected_column
             # Update session state immediately to persist across tab switches
             if 'field_mappings' not in st.session_state:
-                st.session_state.field_mappings = {}
-            st.session_state.field_mappings[field] = selected_column
+                st.session_state.field_mappings = updated_mappings.copy()
+            else:
+                # Update only this field, preserving other mappings
+                st.session_state.field_mappings[field] = selected_column
             
             # Show sample data preview
             if selected_column in df.columns:
@@ -2041,8 +2058,13 @@ def create_learning_enhanced_field_mapping_row(field: str, field_info: dict, df,
             # Remove from both local mappings and session state
             if field in updated_mappings:
                 del updated_mappings[field]
-            if 'field_mappings' in st.session_state and field in st.session_state.field_mappings:
-                del st.session_state.field_mappings[field]
+            # Ensure session state is properly maintained
+            if 'field_mappings' in st.session_state:
+                if field in st.session_state.field_mappings:
+                    del st.session_state.field_mappings[field]
+            else:
+                # If no session state, initialize with current updated_mappings
+                st.session_state.field_mappings = updated_mappings.copy()
     
     with col3:
         # Manual value option
@@ -2056,8 +2078,10 @@ def create_learning_enhanced_field_mapping_row(field: str, field_info: dict, df,
                 updated_mappings[field] = f"MANUAL_VALUE:{manual_value}"
                 # Update session state immediately to persist across tab switches
                 if 'field_mappings' not in st.session_state:
-                    st.session_state.field_mappings = {}
-                st.session_state.field_mappings[field] = f"MANUAL_VALUE:{manual_value}"
+                    st.session_state.field_mappings = updated_mappings.copy()
+                else:
+                    # Update only this field, preserving other mappings
+                    st.session_state.field_mappings[field] = f"MANUAL_VALUE:{manual_value}"
                 st.success(f"✅ Set manual value: {manual_value}")
 
 def create_learning_analytics_dashboard(db_manager, brokerage_name):
