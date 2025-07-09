@@ -2126,8 +2126,8 @@ def create_learning_analytics_dashboard(db_manager, brokerage_name):
         if analytics['top_patterns']:
             st.markdown("### 🎯 Top Learning Patterns")
             for pattern in analytics['top_patterns'][:5]:
-                st.markdown(f"**{pattern['column_pattern']}** → `{pattern['api_field']}` "
-                           f"(confidence: {pattern['confidence']:.1%}, "
+                st.markdown(f"**`{pattern['api_field']}`** "
+                           f"(confidence: {pattern['avg_confidence']:.1%}, "
                            f"used: {pattern['usage_count']} times)")
         
         # Learning progress over time
