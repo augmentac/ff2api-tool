@@ -576,6 +576,10 @@ class DatabaseManager:
         cursor.execute('SELECT COUNT(*) FROM backup_history')
         backup_count = cursor.fetchone()[0]
         
+        # Get brokerage configurations count (primary table)
+        cursor.execute('SELECT COUNT(*) FROM brokerage_configurations')
+        brokerage_configs_count = cursor.fetchone()[0]
+        
         # Get learning table counts
         cursor.execute('SELECT COUNT(*) FROM mapping_interactions')
         interactions_count = cursor.fetchone()[0]
@@ -592,6 +596,7 @@ class DatabaseManager:
             'customer_mappings': mapping_count,
             'upload_history': history_count,
             'backup_history': backup_count,
+            'brokerage_configurations': brokerage_configs_count,
             'mapping_interactions': interactions_count,
             'brokerage_patterns': patterns_count,
             'database_size': db_size

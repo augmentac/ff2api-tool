@@ -2160,9 +2160,27 @@ def render_database_management_section():
     db_manager = DatabaseManager()
     stats = db_manager.get_database_stats()
     
-    if stats['customer_mappings'] > 0 or stats['upload_history'] > 0:
+    # Check if database has any data (including brokerage configurations)
+    has_data = (stats['customer_mappings'] > 0 or 
+                stats['upload_history'] > 0 or 
+                stats['brokerage_configurations'] > 0)
+    
+    if has_data:
         # Database has data - show backup option
-        st.caption(f"📊 {stats['customer_mappings']} configs, {stats['upload_history']} uploads")
+        legacy_configs = stats['customer_mappings']
+        brokerage_configs = stats['brokerage_configurations']
+        uploads = stats['upload_history']
+        
+        # Show comprehensive summary
+        summary_parts = []
+        if brokerage_configs > 0:
+            summary_parts.append(f"{brokerage_configs} brokerage configs")
+        if legacy_configs > 0:
+            summary_parts.append(f"{legacy_configs} legacy configs")
+        if uploads > 0:
+            summary_parts.append(f"{uploads} uploads")
+        
+        st.caption(f"📊 {', '.join(summary_parts)}")
         
         if st.button("📥 Download Backup", help="Save current database"):
             backup_data = create_database_backup()
@@ -2390,7 +2408,9 @@ def check_critical_backup_needs(db_manager):
     """Check for critical backup needs at app startup"""
     try:
         stats = db_manager.get_database_stats()
-        total_data_points = stats['customer_mappings'] + stats['upload_history']
+        total_data_points = (stats['customer_mappings'] + 
+                           stats['upload_history'] + 
+                           stats['brokerage_configurations'])
         
         # Only show critical warnings if there's significant data
         if total_data_points > 0:
@@ -2440,7 +2460,9 @@ def auto_backup_suggestion():
     from src.backend.database import DatabaseManager
     db_manager = DatabaseManager()
     stats = db_manager.get_database_stats()
-    total_data_points = stats['customer_mappings'] + stats['upload_history']
+    total_data_points = (stats['customer_mappings'] + 
+                        stats['upload_history'] + 
+                        stats['brokerage_configurations'])
     
     # Smart backup suggestions based on multiple factors
     suggestion_triggered = False
