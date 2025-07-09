@@ -280,4 +280,4 @@ This project is designed for freight brokers to streamline their data upload pro
 
 ---
 
-**Note**: This tool is designed to work with the GoAugment Loads API. Ensure you have a valid bearer token before use. 
+**Note**: This tool is designed to work with the GoAugment Loads API. Ensure you have a valid bearer token before use. # Force rebuild - Wed Jul  9 10:19:39 CDT 2025
