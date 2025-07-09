@@ -783,7 +783,7 @@ def _render_consolidated_status():
             border_gradient = "linear-gradient(135deg, #6b7280 0%, #4b5563 100%)"
     
     # Modern, polished status display with enhanced styling
-    progress = ready_count / total_checks
+    progress = readiness_percentage / 100  # Use readiness_percentage which accounts for processing completion
     progress_gradient = f"linear-gradient(90deg, {status_color} 0%, {status_color}dd 100%)"
     glow_effect = f"0 0 10px {status_color}33" if readiness_percentage == 100 else "none"
     
