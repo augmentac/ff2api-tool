@@ -1752,12 +1752,19 @@ def create_learning_enhanced_mapping_interface(df, existing_mappings, data_proce
                 # Keep the mapping section expanded when switching tabs
                 st.session_state.mapping_section_expanded = True
     
-    # Tab content - use the properly merged field_mappings as the working set
-    # This ensures we maintain both database mappings and session changes
-    updated_mappings = field_mappings.copy()
+    # Tab content - use session state as the authoritative source for user changes
+    # Don't overwrite session state if it already has user changes
+    # Only initialize session state if it's empty or doesn't exist
+    if not st.session_state.get('field_mappings'):
+        st.session_state.field_mappings = field_mappings.copy()
+    else:
+        # Merge any new database mappings with existing session state (preserving user changes)
+        for field, mapping in field_mappings.items():
+            if field not in st.session_state.field_mappings:
+                st.session_state.field_mappings[field] = mapping
     
-    # Ensure session state is kept in sync with our complete mapping set
-    st.session_state.field_mappings = updated_mappings.copy()
+    # Use session state as the working set to ensure user changes persist
+    updated_mappings = st.session_state.field_mappings.copy()
     
     if st.session_state.mapping_tab_index == 0:
         # Required Fields Tab
