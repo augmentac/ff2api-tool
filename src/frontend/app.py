@@ -306,7 +306,7 @@ def _render_configuration_status(config):
         ('Fields Mapped', has_real_mappings),
         ('File Uploaded', file_uploaded),
         ('Headers Validated', headers_validated or not has_real_mappings),
-        ('Data Validated', validation_passed or not file_uploaded)
+        ('Data Validated', file_uploaded and validation_passed)
     ]
     
     ready_count = sum(1 for _, is_ready in readiness_checks if is_ready)
@@ -740,7 +740,7 @@ def _render_consolidated_status():
         ('Fields Mapped', has_real_mappings),
         ('File Uploaded', file_uploaded),
         ('Headers Validated', headers_validated or not has_real_mappings),
-        ('Data Validated', validation_passed or not file_uploaded)
+        ('Data Validated', file_uploaded and validation_passed)
     ]
     
     ready_count = sum(1 for _, is_ready in readiness_checks if is_ready)
