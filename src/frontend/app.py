@@ -658,7 +658,7 @@ def _render_configuration_selection(db_manager, brokerage_name):
                     pass
                 
                 # Clear workflow state
-                keys_to_clear = ['uploaded_df', 'uploaded_file_name', 'file_headers', 'validation_passed', 'header_comparison', 'field_mappings', 'mapping_tab_index', 'processing_results', 'load_results']
+                keys_to_clear = ['uploaded_df', 'uploaded_file_name', 'file_headers', 'validation_passed', 'header_comparison', 'field_mappings', 'mapping_tab_index', 'processing_results', 'load_results', 'processing_in_progress']
                 for key in keys_to_clear:
                     if key in st.session_state:
                         del st.session_state[key]
@@ -1011,7 +1011,7 @@ def _render_smart_actions():
     col1, col2 = st.columns(2)
     with col1:
         if st.button("🔄 Reset", key="reset_action", use_container_width=True):
-            keys_to_clear = ['uploaded_df', 'uploaded_file_name', 'field_mappings', 'file_headers', 'validation_passed', 'header_comparison', 'mapping_tab_index', 'processing_results', 'load_results']
+            keys_to_clear = ['uploaded_df', 'uploaded_file_name', 'field_mappings', 'file_headers', 'validation_passed', 'header_comparison', 'mapping_tab_index', 'processing_results', 'load_results', 'processing_in_progress']
             for key in keys_to_clear:
                 if key in st.session_state:
                     del st.session_state[key]
@@ -1343,7 +1343,7 @@ def _process_uploaded_file(uploaded_file):
     """Process the uploaded file and update session state"""
     try:
         # Clear processing state from previous session
-        keys_to_clear = ['processing_completed', 'validation_passed', 'field_mappings', 'header_comparison', 'mapping_tab_index', 'processing_results', 'load_results']
+        keys_to_clear = ['processing_completed', 'validation_passed', 'field_mappings', 'header_comparison', 'mapping_tab_index', 'processing_results', 'load_results', 'processing_in_progress']
         for key in keys_to_clear:
             if key in st.session_state:
                 del st.session_state[key]
@@ -1516,7 +1516,7 @@ def _render_current_file_info():
         with col1:
             if st.button("📂 Upload Different File", key="change_file_btn", use_container_width=True):
                 # Clear file-related state
-                keys_to_clear = ['uploaded_df', 'uploaded_file_name', 'file_headers', 'validation_passed', 'header_comparison', 'field_mappings', 'mapping_tab_index', 'file_size', 'processing_completed', 'processing_results', 'load_results']
+                keys_to_clear = ['uploaded_df', 'uploaded_file_name', 'file_headers', 'validation_passed', 'header_comparison', 'field_mappings', 'mapping_tab_index', 'file_size', 'processing_completed', 'processing_results', 'load_results', 'processing_in_progress']
                 for key in keys_to_clear:
                     if key in st.session_state:
                         del st.session_state[key]
@@ -1705,7 +1705,16 @@ def _render_smart_mapping_section(db_manager, data_processor):
     if 'mapping_section_expanded' not in st.session_state:
         st.session_state.mapping_section_expanded = not st.session_state.get('field_mappings')
     
-    with st.expander("🔗 **Field Mapping**", expanded=st.session_state.mapping_section_expanded):
+    # Prevent mapping section from expanding during processing or processing failures
+    # This fixes the bug where Process Data click causes mapping section to open
+    is_processing_active = st.session_state.get('processing_in_progress', False)
+    validation_passed = st.session_state.get('validation_passed', False)
+    
+    # If validation has passed, user shouldn't need to return to mapping
+    if validation_passed:
+        st.session_state.mapping_section_expanded = False
+    
+    with st.expander("🔗 **Field Mapping**", expanded=st.session_state.mapping_section_expanded and not is_processing_active):
         st.caption("Map your CSV columns to API fields")
         
         df = st.session_state.uploaded_df
@@ -1823,7 +1832,7 @@ def _render_processing_section(db_manager, data_processor):
             col1, col2, col3 = st.columns(3)
             with col1:
                 if st.button("🔄 Process Another File", type="primary", key="process_another_main", use_container_width=True):
-                    keys_to_clear = ['uploaded_df', 'uploaded_file_name', 'file_headers', 'validation_passed', 'header_comparison', 'field_mappings', 'mapping_tab_index', 'processing_completed', 'processing_results', 'load_results']
+                    keys_to_clear = ['uploaded_df', 'uploaded_file_name', 'file_headers', 'validation_passed', 'header_comparison', 'field_mappings', 'mapping_tab_index', 'processing_completed', 'processing_results', 'load_results', 'processing_in_progress']
                     for key in keys_to_clear:
                         if key in st.session_state:
                             del st.session_state[key]
@@ -2003,6 +2012,9 @@ def _save_configuration(db_manager, field_mappings, file_headers):
 def process_data_enhanced(df, field_mappings, api_credentials, brokerage_name, data_processor, db_manager, session_id):
     """Enhanced data processing with detailed tracking and error handling"""
     
+    # Set processing flag to prevent UI interference
+    st.session_state.processing_in_progress = True
+    
     # Initialize progress tracking
     total_steps = 6
     current_step = 0
@@ -2060,6 +2072,7 @@ def process_data_enhanced(df, field_mappings, api_credentials, brokerage_name, d
         connection_test = client.validate_connection()
         if not connection_test['success']:
             st.error(f"❌ API connection failed: {connection_test['message']}")
+            st.session_state.processing_in_progress = False  # Clear processing flag on early failure
             return
             
         # Step 2: Apply field mappings
@@ -2072,6 +2085,7 @@ def process_data_enhanced(df, field_mappings, api_credentials, brokerage_name, d
             st.error("❌ Mapping failed:")
             for error in mapping_errors:
                 st.error(f"• {error}")
+            st.session_state.processing_in_progress = False  # Clear processing flag on early failure
             return
         
         # Step 3: Data validation
@@ -2234,6 +2248,9 @@ def process_data_enhanced(df, field_mappings, api_credentials, brokerage_name, d
         # Set processing completion flag for status bar
         st.session_state.processing_completed = True
         
+        # Clear processing flag since we're done
+        st.session_state.processing_in_progress = False
+        
         # Store processing results summary for Results & Downloads section
         st.session_state.processing_results = {
             'success_rate': success_rate,
@@ -2346,6 +2363,9 @@ def process_data_enhanced(df, field_mappings, api_credentials, brokerage_name, d
         # Enhanced error handling
         st.error(f"❌ Processing failed: {str(e)}")
         logger.error(f"Processing error: {str(e)}")
+        
+        # Clear processing flag on error to prevent UI state issues
+        st.session_state.processing_in_progress = False
         
         # Clear progress indicators on error
         try:

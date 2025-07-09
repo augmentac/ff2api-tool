@@ -1749,8 +1749,15 @@ def create_learning_enhanced_mapping_interface(df, existing_mappings, data_proce
                         type="primary" if st.session_state.mapping_tab_index == i else "secondary",
                         use_container_width=True):
                 st.session_state.mapping_tab_index = i
-                # Keep the mapping section expanded when switching tabs
-                st.session_state.mapping_section_expanded = True
+                # Only expand mapping section if user is actively working on mapping
+                # Prevent expansion during processing failures or when validation has passed
+                is_processing_active = st.session_state.get('processing_in_progress', False)
+                validation_passed = st.session_state.get('validation_passed', False)
+                processing_completed = st.session_state.get('processing_completed', False)
+                
+                # Only expand if user is in the mapping phase (not during/after processing)
+                if not is_processing_active and not validation_passed and not processing_completed:
+                    st.session_state.mapping_section_expanded = True
     
     # Tab content - use session state as the authoritative source for user changes
     # Don't overwrite session state if it already has user changes
