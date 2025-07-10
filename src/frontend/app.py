@@ -295,9 +295,20 @@ def _render_configuration_status(config):
     # Determine configuration readiness state
     field_mappings = config.get('field_mappings', {})
     has_real_mappings = any(not key.startswith('_') for key in field_mappings.keys())
-    api_connected = 'api_credentials' in config and config['api_credentials'].get('api_key')
+    
+    # Fix API connection check to handle both auth types
+    auth_type = config.get('auth_type', 'api_key')
+    if auth_type == 'api_key':
+        api_connected = 'api_credentials' in config and config['api_credentials'].get('api_key')
+    else:  # bearer_token
+        api_connected = 'api_credentials' in config and config.get('bearer_token')
+    
     file_uploaded = 'uploaded_df' in st.session_state
-    headers_validated = st.session_state.get('header_comparison', {}).get('status') == 'identical'
+    
+    # Fix headers validation logic - headers can only be validated if file is uploaded
+    headers_validated = (file_uploaded and 
+                        st.session_state.get('header_comparison', {}).get('status') == 'identical')
+    
     validation_passed = st.session_state.get('validation_passed', False)
     
     # Calculate readiness score
@@ -305,7 +316,7 @@ def _render_configuration_status(config):
         ('API Connected', api_connected),
         ('Fields Mapped', has_real_mappings),
         ('File Uploaded', file_uploaded),
-        ('Headers Validated', headers_validated or not has_real_mappings),
+        ('Headers Validated', headers_validated or (not has_real_mappings and not file_uploaded)),
         ('Data Validated', file_uploaded and validation_passed)
     ]
     
@@ -736,9 +747,20 @@ def _render_consolidated_status():
     # Calculate readiness
     field_mappings = config.get('field_mappings', {})
     has_real_mappings = any(not key.startswith('_') for key in field_mappings.keys())
-    api_connected = 'api_credentials' in config and config['api_credentials'].get('api_key')
+    
+    # Fix API connection check to handle both auth types
+    auth_type = config.get('auth_type', 'api_key')
+    if auth_type == 'api_key':
+        api_connected = 'api_credentials' in config and config['api_credentials'].get('api_key')
+    else:  # bearer_token
+        api_connected = 'api_credentials' in config and config.get('bearer_token')
+    
     file_uploaded = 'uploaded_df' in st.session_state
-    headers_validated = st.session_state.get('header_comparison', {}).get('status') == 'identical'
+    
+    # Fix headers validation logic - headers can only be validated if file is uploaded
+    headers_validated = (file_uploaded and 
+                        st.session_state.get('header_comparison', {}).get('status') == 'identical')
+    
     validation_passed = st.session_state.get('validation_passed', False)
     processing_completed = st.session_state.get('processing_completed', False)
     
@@ -746,7 +768,7 @@ def _render_consolidated_status():
         ('API Connected', api_connected),
         ('Fields Mapped', has_real_mappings),
         ('File Uploaded', file_uploaded),
-        ('Headers Validated', headers_validated or not has_real_mappings),
+        ('Headers Validated', headers_validated or (not has_real_mappings and not file_uploaded)),
         ('Data Validated', file_uploaded and validation_passed)
     ]
     
