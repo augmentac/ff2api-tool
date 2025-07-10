@@ -28,6 +28,8 @@ class DatabaseManager:
                 configuration_name TEXT NOT NULL,
                 field_mappings TEXT NOT NULL,
                 api_credentials TEXT NOT NULL,
+                auth_type TEXT DEFAULT 'api_key',
+                bearer_token TEXT,
                 file_headers TEXT,
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                 updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
@@ -808,7 +810,7 @@ class DatabaseManager:
             raise
         return key 
 
-    def save_brokerage_configuration(self, brokerage_name, configuration_name, field_mappings, api_credentials, file_headers=None, description=None):
+    def save_brokerage_configuration(self, brokerage_name, configuration_name, field_mappings, api_credentials, file_headers=None, description=None, auth_type='api_key', bearer_token=None):
         """Save or update brokerage configuration with versioning"""
         # Input validation
         if not brokerage_name or not isinstance(brokerage_name, str):
@@ -835,12 +837,26 @@ class DatabaseManager:
             key = self._get_encryption_key()
             f = Fernet(key)
             
-            # Validate API credentials structure before encrypting
-            required_cred_fields = ['base_url', 'api_key']
-            if not all(field in api_credentials for field in required_cred_fields):
-                raise ValueError("Missing required API credential fields")
+            # Validate API credentials structure before encrypting based on auth type
+            if auth_type == 'api_key':
+                required_cred_fields = ['base_url', 'api_key']
+                if not all(field in api_credentials for field in required_cred_fields):
+                    raise ValueError("Missing required API credential fields for API key authentication: base_url, api_key")
+            elif auth_type == 'bearer_token':
+                required_cred_fields = ['base_url']
+                if not all(field in api_credentials for field in required_cred_fields):
+                    raise ValueError("Missing required API credential fields for bearer token authentication: base_url")
+                if not bearer_token:
+                    raise ValueError("Bearer token is required when auth_type is 'bearer_token'")
+            else:
+                raise ValueError(f"Invalid auth_type: {auth_type}. Must be 'api_key' or 'bearer_token'")
             
             encrypted_credentials = f.encrypt(json.dumps(api_credentials).encode())
+            
+            # Encrypt bearer token if provided
+            encrypted_bearer_token = None
+            if bearer_token:
+                encrypted_bearer_token = f.encrypt(bearer_token.encode())
             
             # Check if configuration exists
             cursor.execute('''
@@ -856,11 +872,11 @@ class DatabaseManager:
                 
                 cursor.execute('''
                     UPDATE brokerage_configurations 
-                    SET field_mappings = ?, api_credentials = ?, file_headers = ?, 
-                        updated_at = ?, last_used_at = ?, description = ?
+                    SET field_mappings = ?, api_credentials = ?, auth_type = ?, bearer_token = ?, 
+                        file_headers = ?, updated_at = ?, last_used_at = ?, description = ?
                     WHERE id = ?
                 ''', (
-                    json.dumps(field_mappings), encrypted_credentials, 
+                    json.dumps(field_mappings), encrypted_credentials, auth_type, encrypted_bearer_token,
                     json.dumps(file_headers) if file_headers else None,
                     datetime.now(), datetime.now(), description, config_id
                 ))
@@ -877,11 +893,11 @@ class DatabaseManager:
                 cursor.execute('''
                     INSERT INTO brokerage_configurations 
                     (brokerage_name, configuration_name, field_mappings, api_credentials, 
-                     file_headers, last_used_at, description)
-                    VALUES (?, ?, ?, ?, ?, ?, ?)
+                     auth_type, bearer_token, file_headers, last_used_at, description)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
                 ''', (
                     safe_brokerage_name, safe_configuration_name, 
-                    json.dumps(field_mappings), encrypted_credentials,
+                    json.dumps(field_mappings), encrypted_credentials, auth_type, encrypted_bearer_token,
                     json.dumps(file_headers) if file_headers else None,
                     datetime.now(), description
                 ))
@@ -912,7 +928,7 @@ class DatabaseManager:
         
         cursor.execute('''
             SELECT id, configuration_name, created_at, updated_at, last_used_at, 
-                   version, description, field_mappings, api_credentials
+                   version, description, field_mappings, api_credentials, auth_type, bearer_token
             FROM brokerage_configurations 
             WHERE brokerage_name = ? AND is_active = 1
             ORDER BY last_used_at DESC, updated_at DESC
@@ -923,12 +939,17 @@ class DatabaseManager:
         
         configurations = []
         for row in results:
-            config_id, config_name, created_at, updated_at, last_used_at, version, desc, mappings, creds = row
+            config_id, config_name, created_at, updated_at, last_used_at, version, desc, mappings, creds, auth_type, bearer_token = row
             
             # Decrypt API credentials
             key = self._get_encryption_key()
             f = Fernet(key)
             decrypted_credentials = json.loads(f.decrypt(creds).decode())
+            
+            # Decrypt bearer token if present
+            decrypted_bearer_token = None
+            if bearer_token:
+                decrypted_bearer_token = f.decrypt(bearer_token).decode()
             
             configurations.append({
                 'id': config_id,
@@ -940,6 +961,8 @@ class DatabaseManager:
                 'description': desc,
                 'field_mappings': json.loads(mappings),
                 'api_credentials': decrypted_credentials,
+                'auth_type': auth_type or 'api_key',  # Default to api_key for backward compatibility
+                'bearer_token': decrypted_bearer_token,
                 'field_count': len(json.loads(mappings))
             })
         
@@ -951,7 +974,7 @@ class DatabaseManager:
         cursor = conn.cursor()
         
         cursor.execute('''
-            SELECT field_mappings, api_credentials, file_headers, version, description
+            SELECT field_mappings, api_credentials, file_headers, version, description, auth_type, bearer_token
             FROM brokerage_configurations 
             WHERE brokerage_name = ? AND configuration_name = ? AND is_active = 1
         ''', (brokerage_name, configuration_name))
@@ -960,19 +983,26 @@ class DatabaseManager:
         conn.close()
         
         if result:
-            mappings, creds, headers, version, desc = result
+            mappings, creds, headers, version, desc, auth_type, bearer_token = result
             
             # Decrypt API credentials
             key = self._get_encryption_key()
             f = Fernet(key)
             decrypted_credentials = json.loads(f.decrypt(creds).decode())
             
+            # Decrypt bearer token if present
+            decrypted_bearer_token = None
+            if bearer_token:
+                decrypted_bearer_token = f.decrypt(bearer_token).decode()
+            
             return {
                 'field_mappings': json.loads(mappings),
                 'api_credentials': decrypted_credentials,
                 'file_headers': json.loads(headers) if headers else None,
                 'version': version,
-                'description': desc
+                'description': desc,
+                'auth_type': auth_type or 'api_key',  # Default to api_key for backward compatibility
+                'bearer_token': decrypted_bearer_token
             }
         return None
 
@@ -1290,6 +1320,28 @@ class DatabaseManager:
                 cursor.execute('ALTER TABLE upload_history_new RENAME TO upload_history')
                 
                 logging.info("Successfully migrated upload_history table schema")
+            
+            # Check if brokerage_configurations table needs auth columns migration
+            cursor.execute("PRAGMA table_info(brokerage_configurations)")
+            columns = cursor.fetchall()
+            column_names = [col[1] for col in columns]
+            
+            if 'auth_type' not in column_names:
+                logging.info("Adding auth_type and bearer_token columns to brokerage_configurations table...")
+                
+                # Add auth_type column with default value
+                cursor.execute('''
+                    ALTER TABLE brokerage_configurations 
+                    ADD COLUMN auth_type TEXT DEFAULT 'api_key'
+                ''')
+                
+                # Add bearer_token column (nullable)
+                cursor.execute('''
+                    ALTER TABLE brokerage_configurations 
+                    ADD COLUMN bearer_token TEXT
+                ''')
+                
+                logging.info("Successfully added auth columns to brokerage_configurations table")
                 
         except Exception as e:
             logging.error(f"Error during database migration: {e}")

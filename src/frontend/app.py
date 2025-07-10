@@ -355,8 +355,11 @@ def _render_configuration_status(config):
     st.progress(progress, text=f"{readiness_percentage:.0f}% Ready")
     
     # Configuration details
+    auth_type = config.get('auth_type', 'api_key')
+    auth_display = "🔑 API Key" if auth_type == 'api_key' else "🎫 Bearer Token"
     st.caption(f"📅 Created: {config['created_at'][:10]}")
     st.caption(f"🔗 {config['field_count']} fields mapped")
+    st.caption(f"🔐 Auth: {auth_display}")
     st.caption(f"🔄 Updated: {config.get('updated_at', config['created_at'])[:10]}")
     
     # Show detailed status checks
@@ -677,6 +680,10 @@ def _render_configuration_selection(db_manager, brokerage_name):
 def _render_compact_brokerage_config_display(db_manager, brokerage_name, configuration):
     """Render compact display of both brokerage and configuration when both are selected"""
     
+    # Determine auth type display
+    auth_type = configuration.get('auth_type', 'api_key')
+    auth_icon = "🔑" if auth_type == 'api_key' else "🎫"
+    
     # Compact combined display
     st.markdown(f"""
         <div style="
@@ -699,7 +706,7 @@ def _render_compact_brokerage_config_display(db_manager, brokerage_name, configu
                 color: #475569; 
                 margin-bottom: 4px;
             ">
-                ⚙️ {configuration['name']}
+                ⚙️ {configuration['name']} {auth_icon}
             </div>
             <div style="
                 font-size: 0.7rem; 
@@ -1089,7 +1096,9 @@ def _render_new_configuration_form(brokerage_name, db_manager):
             'config_name': '',
             'config_description': '',
             'api_base_url': 'https://api.prod.goaugment.com',
-            'api_key': ''
+            'api_key': '',
+            'auth_type': 'api_key',
+            'bearer_token': ''
         }
     
     # Compact form
@@ -1100,18 +1109,52 @@ def _render_new_configuration_form(brokerage_name, db_manager):
         key="new_config_name_input"
     )
     
-    api_key = st.text_input(
-        "API Key",
-        value=st.session_state.config_form_state['api_key'],
-        type="password",
-        placeholder="Your API key",
-        key="new_config_api_key_input"
+    # Authentication type selection
+    auth_type = st.selectbox(
+        "Authentication Type",
+        options=['api_key', 'bearer_token'],
+        index=0 if st.session_state.config_form_state['auth_type'] == 'api_key' else 1,
+        format_func=lambda x: "API Key (with token refresh)" if x == 'api_key' else "Bearer Token (direct)",
+        key="auth_type_select",
+        help="Choose authentication method - API Key automatically refreshes tokens, Bearer Token uses your token directly"
     )
+    
+    # API Base URL (always needed)
+    api_base_url = st.text_input(
+        "API Base URL",
+        value=st.session_state.config_form_state['api_base_url'],
+        placeholder="https://api.prod.goaugment.com",
+        key="new_config_api_url_input"
+    )
+    
+    # Conditional authentication fields based on auth type
+    api_key = ""
+    bearer_token = ""
+    
+    if auth_type == 'api_key':
+        api_key = st.text_input(
+            "API Key",
+            value=st.session_state.config_form_state['api_key'],
+            type="password",
+            placeholder="Your API key (used to refresh bearer tokens)",
+            key="new_config_api_key_input"
+        )
+    else:  # bearer_token
+        bearer_token = st.text_input(
+            "Bearer Token",
+            value=st.session_state.config_form_state['bearer_token'],
+            type="password",
+            placeholder="Your bearer token (used directly for API calls)",
+            key="new_config_bearer_token_input"
+        )
     
     # Update form state
     st.session_state.config_form_state.update({
         'config_name': config_name,
-        'api_key': api_key
+        'api_base_url': api_base_url,
+        'auth_type': auth_type,
+        'api_key': api_key,
+        'bearer_token': bearer_token
     })
     
     # Action buttons
@@ -1126,7 +1169,9 @@ def _render_new_configuration_form(brokerage_name, db_manager):
                 'config_name': '',
                 'config_description': '',
                 'api_base_url': 'https://api.prod.goaugment.com',
-                'api_key': ''
+                'api_key': '',
+                'auth_type': 'api_key',
+                'bearer_token': ''
             }
             st.rerun()
 
@@ -1141,26 +1186,53 @@ def _handle_save_configuration(brokerage_name, db_manager):
     config_name = form_state['config_name'].strip()
     config_description = form_state['config_description'].strip()
     api_base_url = form_state['api_base_url'].strip()
+    auth_type = form_state['auth_type']
     api_key = form_state['api_key'].strip()
+    bearer_token = form_state['bearer_token'].strip()
     
-    if not config_name or not api_key:
-        st.error("Please provide both configuration name and API key")
+    # Validate required fields based on auth type
+    if not config_name:
+        st.error("Please provide a configuration name")
+        return
+    
+    if auth_type == 'api_key' and not api_key:
+        st.error("Please provide an API key for API key authentication")
+        return
+    elif auth_type == 'bearer_token' and not bearer_token:
+        st.error("Please provide a bearer token for bearer token authentication")
+        return
+    
+    if not api_base_url:
+        st.error("Please provide an API base URL")
         return
     
     # Test API connection
     with st.spinner("Testing API connection..."):
         try:
             from src.backend.api_client import LoadsAPIClient
-            client = LoadsAPIClient(api_base_url, api_key)
+            
+            if auth_type == 'api_key':
+                client = LoadsAPIClient(api_base_url, api_key=api_key, auth_type='api_key')
+            else:  # bearer_token
+                client = LoadsAPIClient(api_base_url, bearer_token=bearer_token, auth_type='bearer_token')
+            
             result = client.validate_connection()
         
             if result['success']:
                 # Save configuration to database with placeholder field mappings
                 try:
-                    api_credentials = {
-                        'base_url': api_base_url,
-                        'api_key': api_key
-                    }
+                    # Build API credentials based on auth type
+                    if auth_type == 'api_key':
+                        api_credentials = {
+                            'base_url': api_base_url,
+                            'api_key': api_key
+                        }
+                        save_bearer_token = None
+                    else:  # bearer_token
+                        api_credentials = {
+                            'base_url': api_base_url
+                        }
+                        save_bearer_token = bearer_token
                     
                     # Save to database - start with placeholder field mappings that indicate "pending"
                     placeholder_mappings = {
@@ -1175,7 +1247,9 @@ def _handle_save_configuration(brokerage_name, db_manager):
                         field_mappings=placeholder_mappings,
                         api_credentials=api_credentials,
                         file_headers=None,
-                        description=config_description
+                        description=config_description,
+                        auth_type=auth_type,
+                        bearer_token=save_bearer_token
                     )
                     
                     # Save configuration info to session and switch to 'existing' mode
@@ -1186,6 +1260,8 @@ def _handle_save_configuration(brokerage_name, db_manager):
                         'configuration_name': config_name,
                         'description': config_description,
                         'api_credentials': api_credentials,
+                        'auth_type': auth_type,
+                        'bearer_token': save_bearer_token,
                         'field_mappings': placeholder_mappings,
                         'version': 1,
                         'created_at': str(datetime.now()),
@@ -1210,7 +1286,9 @@ def _handle_save_configuration(brokerage_name, db_manager):
                         'config_name': '',
                         'config_description': '',
                         'api_base_url': 'https://api.prod.goaugment.com',
-                        'api_key': ''
+                        'api_key': '',
+                        'auth_type': 'api_key',
+                        'bearer_token': ''
                     }
                     
                     st.success("✅ Configuration saved! Upload a file to continue.")
@@ -2057,8 +2135,16 @@ def process_data_enhanced(df, field_mappings, api_credentials, brokerage_name, d
         # Step 1: Pre-flight validation
         update_progress("Pre-flight validation", 1, "Validating inputs and connections...")
         
-        # Validate API credentials
-        client = LoadsAPIClient(api_credentials['base_url'], api_credentials['api_key'])
+        # Validate API credentials and create client based on auth type
+        config = st.session_state.get('selected_configuration', {})
+        auth_type = config.get('auth_type', 'api_key')  # Default to api_key for backward compatibility
+        bearer_token = config.get('bearer_token')
+        
+        if auth_type == 'api_key':
+            client = LoadsAPIClient(api_credentials['base_url'], api_key=api_credentials['api_key'], auth_type='api_key')
+        else:  # bearer_token
+            client = LoadsAPIClient(api_credentials['base_url'], bearer_token=bearer_token, auth_type='bearer_token')
+        
         connection_test = client.validate_connection()
         if not connection_test['success']:
             st.error(f"❌ API connection failed: {connection_test['message']}")
@@ -2469,8 +2555,8 @@ def process_data(df, field_mappings, api_credentials, customer_name, data_proces
         # Step 1: Pre-flight validation
         update_progress("Pre-flight validation", 1, "Validating inputs and connections...")
         
-        # Validate API credentials
-        client = LoadsAPIClient(api_credentials['base_url'], api_credentials['api_key'])
+        # Validate API credentials (this is a legacy function, using api_key auth only for now)
+        client = LoadsAPIClient(api_credentials['base_url'], api_key=api_credentials['api_key'], auth_type='api_key')
         connection_test = client.validate_connection()
         if not connection_test['success']:
             st.error(f"❌ API connection failed: {connection_test['message']}")

@@ -427,10 +427,11 @@ def create_enhanced_file_uploader(key: str = "file_uploader"):
     # No success message here - will be handled by main workflow
     return uploaded_file
 
-def create_connection_status_card(api_credentials: Optional[Dict[str, str]]):
+def create_connection_status_card(api_credentials: Optional[Dict[str, str]], auth_type: str = 'api_key'):
     """Create a connection status card with fallback"""
     if api_credentials:
         try:
+            auth_display = "🔑 API Key" if auth_type == 'api_key' else "🎫 Bearer Token"
             st.markdown(f"""
                 <div style="background: rgba(16, 185, 129, 0.1); padding: 1.5rem; border-radius: 0.75rem; border: 1px solid rgba(16, 185, 129, 0.2); margin-bottom: 1rem;">
                     <div style="display: flex; align-items: center; margin-bottom: 0.5rem;">
@@ -438,12 +439,14 @@ def create_connection_status_card(api_credentials: Optional[Dict[str, str]]):
                         <strong style="color: #10b981;">API Connection Active</strong>
                     </div>
                     <p style="margin: 0; color: #64748b; font-size: 0.9rem;">
-                        Connected to: {api_credentials.get('base_url', 'Unknown')}
+                        Connected to: {api_credentials.get('base_url', 'Unknown')}<br/>
+                        Authentication: {auth_display}
                     </p>
                 </div>
             """, unsafe_allow_html=True)
         except:
-            st.success(f"✅ API Connected to: {api_credentials.get('base_url', 'Unknown')}")
+            auth_display = "API Key" if auth_type == 'api_key' else "Bearer Token"
+            st.success(f"✅ API Connected to: {api_credentials.get('base_url', 'Unknown')} ({auth_display})")
     else:
         try:
             st.markdown("""
@@ -1091,10 +1094,14 @@ def create_configuration_management_interface(brokerage_name, db_manager):
                     col1, col2, col3 = st.columns([2, 1, 1])
                     
                     with col1:
+                        auth_type = config.get('auth_type', 'api_key')
+                        auth_display = "🔑 API Key" if auth_type == 'api_key' else "🎫 Bearer Token"
                         st.markdown(f"""
                             **Description:** {config.get('description', 'No description')}
                             
                             **Fields mapped:** {config['field_count']}
+                            
+                            **Authentication:** {auth_display}
                             
                             **Created:** {config['created_at'][:10]}
                             
@@ -1165,7 +1172,7 @@ def create_new_configuration_interface(brokerage_name):
         if st.button("🔍 Test API Connection", key="test_new_config_api"):
             try:
                 from src.backend.api_client import LoadsAPIClient
-                client = LoadsAPIClient(api_base_url, api_key)
+                client = LoadsAPIClient(api_base_url, api_key=api_key, auth_type='api_key')
                 result = client.validate_connection()
                 
                 if result['success']:

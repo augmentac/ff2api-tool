@@ -1,23 +1,43 @@
 import requests
 import json
 import logging
-from typing import Dict, List, Any
+from typing import Dict, List, Any, Optional
 
 class LoadsAPIClient:
-    def __init__(self, base_url: str, api_key: str):
+    def __init__(self, base_url: str, api_key: Optional[str] = None, bearer_token: Optional[str] = None, auth_type: str = 'api_key'):
         self.base_url = base_url.rstrip('/') if base_url else "https://api.prod.goaugment.com"
         self.api_key = api_key
-        self.bearer_token = None
+        self.auth_type = auth_type
+        self.bearer_token = bearer_token
         self.session = requests.Session()
         self.session.headers.update({
             'Content-Type': 'application/json'
         })
         
-        # Automatically refresh token on initialization
-        self._refresh_token()
+        # Handle different authentication types
+        if self.auth_type == 'bearer_token':
+            if not self.bearer_token:
+                raise ValueError("Bearer token is required when auth_type is 'bearer_token'")
+            # Set bearer token directly in session headers
+            self.session.headers.update({
+                'Authorization': f'Bearer {self.bearer_token}'
+            })
+        elif self.auth_type == 'api_key':
+            if not self.api_key:
+                raise ValueError("API key is required when auth_type is 'api_key'")
+            # Use API key to refresh token (existing behavior)
+            self._refresh_token()
+        else:
+            raise ValueError(f"Unsupported auth_type: {auth_type}. Must be 'api_key' or 'bearer_token'")
     
     def _refresh_token(self) -> Dict[str, Any]:
-        """Refresh the bearer token using the API key"""
+        """Refresh the bearer token using the API key (only for api_key auth_type)"""
+        if self.auth_type != 'api_key':
+            return {'success': False, 'message': 'Token refresh not available for bearer token authentication'}
+        
+        if not self.api_key:
+            return {'success': False, 'message': 'API key not provided for token refresh'}
+        
         try:
             response = requests.post(
                 f"{self.base_url}/token/refresh",
@@ -147,41 +167,49 @@ class LoadsAPIClient:
                         'status_code': response.status_code
                     }
             elif response.status_code == 401:
-                # Unauthorized - try token refresh
-                refresh_result = self._refresh_token()
-                if refresh_result['success']:
-                    # Retry the request with new token
-                    response = self.session.post(f"{self.base_url}/v2/loads", json=load_data, timeout=30)
-                    if response.status_code in [200, 201, 204]:
-                        try:
-                            response_data = response.json()
-                            # Extract load number from response
-                            load_number = (response_data.get('loadNumber') or 
-                                         response_data.get('load', {}).get('loadNumber') or
-                                         response_data.get('id'))
+                # Unauthorized - try token refresh only for API key auth
+                if self.auth_type == 'api_key':
+                    refresh_result = self._refresh_token()
+                    if refresh_result['success']:
+                        # Retry the request with new token
+                        response = self.session.post(f"{self.base_url}/v2/loads", json=load_data, timeout=30)
+                        if response.status_code in [200, 201, 204]:
+                            try:
+                                response_data = response.json()
+                                # Extract load number from response
+                                load_number = (response_data.get('loadNumber') or 
+                                             response_data.get('load', {}).get('loadNumber') or
+                                             response_data.get('id'))
+                                return {
+                                    'success': True,
+                                    'data': response_data,
+                                    'status_code': response.status_code,
+                                    'load_number': load_number
+                                }
+                            except json.JSONDecodeError:
+                                return {
+                                    'success': True,
+                                    'data': {'message': 'Load created successfully after token refresh'},
+                                    'status_code': response.status_code,
+                                    'load_number': None # Will be filled from original payload
+                                }
+                        else:
                             return {
-                                'success': True,
-                                'data': response_data,
-                                'status_code': response.status_code,
-                                'load_number': load_number
-                            }
-                        except json.JSONDecodeError:
-                            return {
-                                'success': True,
-                                'data': {'message': 'Load created successfully after token refresh'},
-                                'status_code': response.status_code,
-                                'load_number': None # Will be filled from original payload
+                                'success': False,
+                                'error': f'Authentication failed after token refresh: HTTP {response.status_code}',
+                                'status_code': response.status_code
                             }
                     else:
                         return {
                             'success': False,
-                            'error': f'Authentication failed after token refresh: HTTP {response.status_code}',
+                            'error': f'Authentication failed: {refresh_result["message"]}',
                             'status_code': response.status_code
                         }
                 else:
+                    # Bearer token authentication - no refresh available
                     return {
                         'success': False,
-                        'error': f'Authentication failed: {refresh_result["message"]}',
+                        'error': 'Bearer token authentication failed. Please check your bearer token.',
                         'status_code': response.status_code
                     }
             elif response.status_code == 403:
@@ -265,9 +293,15 @@ class LoadsAPIClient:
     
     def validate_connection(self) -> Dict[str, Any]:
         """Test API connection and credentials using minimal required payload"""
-        # First check if token refresh was successful
-        if not self.bearer_token:
-            return {'success': False, 'message': 'Token refresh failed. Please check your API key.'}
+        # Check authentication setup
+        if self.auth_type == 'api_key':
+            # For API key auth, check if token refresh was successful
+            if not self.bearer_token:
+                return {'success': False, 'message': 'Token refresh failed. Please check your API key.'}
+        elif self.auth_type == 'bearer_token':
+            # For bearer token auth, check if token was provided
+            if not self.bearer_token:
+                return {'success': False, 'message': 'Bearer token not provided.'}
         
         try:
             # Minimal payload with only required top-level objects and core load fields
@@ -359,22 +393,22 @@ class LoadsAPIClient:
             elif response.status_code == 204:
                 return {'success': True, 'message': 'Connection successful! (HTTP 204 - No Content - API accepted the request)'}
             elif response.status_code == 401:
-                # Try to refresh token once on 401
-                refresh_result = self._refresh_token()
-                if refresh_result['success']:
-                    # Retry the request with new token
-                    response = self.session.post(f"{self.base_url}/v2/loads", json=test_payload, timeout=30)
-                    if response.status_code in [200, 201, 204]:
-                        # Extract load number from response
-                        response_data = response.json()
-                        load_number = (response_data.get('loadNumber') or 
-                                     response_data.get('load', {}).get('loadNumber') or
-                                     response_data.get('id'))
-                        return {'success': True, 'message': 'Connection successful! (Token refreshed)'}
+                # Handle 401 based on auth type
+                if self.auth_type == 'api_key':
+                    # Try to refresh token once on 401 for API key auth
+                    refresh_result = self._refresh_token()
+                    if refresh_result['success']:
+                        # Retry the request with new token
+                        response = self.session.post(f"{self.base_url}/v2/loads", json=test_payload, timeout=30)
+                        if response.status_code in [200, 201, 204]:
+                            return {'success': True, 'message': 'Connection successful! (Token refreshed)'}
+                        else:
+                            return {'success': False, 'message': 'Authentication failed even after token refresh. Please check your API key.'}
                     else:
-                        return {'success': False, 'message': 'Authentication failed even after token refresh. Please check your API key.'}
+                        return {'success': False, 'message': f'Authentication failed. Token refresh error: {refresh_result["message"]}'}
                 else:
-                    return {'success': False, 'message': f'Authentication failed. Token refresh error: {refresh_result["message"]}'}
+                    # Bearer token authentication - no refresh available
+                    return {'success': False, 'message': 'Bearer token authentication failed. Please check your bearer token.'}
             elif response.status_code == 403:
                 return {'success': False, 'message': 'Access forbidden. Check your API key permissions.'}
             elif response.status_code == 404:
