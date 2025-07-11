@@ -311,13 +311,13 @@ def _render_configuration_status(config):
     
     validation_passed = st.session_state.get('validation_passed', False)
     
-    # Calculate readiness score
+    # Calculate readiness score with clearer validation distinction
     readiness_checks = [
         ('API Connected', api_connected),
         ('Fields Mapped', has_real_mappings),
         ('File Uploaded', file_uploaded),
         ('Headers Validated', headers_validated or (not has_real_mappings and not file_uploaded)),
-        ('Data Validated', file_uploaded and validation_passed)
+        ('Mapping Ready', file_uploaded and has_real_mappings)  # Ready to validate, not validated yet
     ]
     
     ready_count = sum(1 for _, is_ready in readiness_checks if is_ready)
@@ -807,7 +807,7 @@ def _render_consolidated_status():
         ('Fields Mapped', has_real_mappings),
         ('File Uploaded', file_uploaded),
         ('Headers Validated', headers_validated or (not has_real_mappings and not file_uploaded)),
-        ('Data Validated', file_uploaded and validation_passed)
+        ('Mapping Ready', file_uploaded and has_real_mappings)  # Ready to validate, not validated yet
     ]
     
     ready_count = sum(1 for _, is_ready in readiness_checks if is_ready)
@@ -967,7 +967,7 @@ def _render_consolidated_status():
                         font-weight: 500;
                         box-shadow: 0 2px 6px rgba(59, 130, 246, 0.15);
                         border: 1px solid rgba(59, 130, 246, 0.2);
-                    ">💡 Validate your data mapping</div>
+                    ">💡 Validate data quality</div>
                 </div>
             ''', unsafe_allow_html=True)
         else:
@@ -1065,7 +1065,7 @@ def _render_smart_actions():
     
     # Primary action based on workflow state - removed redundant Process Data button
     if uploaded_df is not None and not validation_passed:
-        if st.button("🔍 Validate Mapping", type="primary", use_container_width=True, key="primary_action"):
+        if st.button("🔍 Validate Data Quality", type="primary", use_container_width=True, key="primary_action"):
             st.session_state.trigger_validation = True
     elif selected_configuration and uploaded_df is None:
         # Skip upload file action - it's redundant with main upload area
@@ -1589,7 +1589,7 @@ def _render_workflow_with_progress(db_manager, data_processor):
             field_mappings = st.session_state.get('field_mappings', {})
             has_real_mappings = any(not k.startswith('_') and v and v != 'Select column...' for k, v in field_mappings.items())
             if has_real_mappings:
-                st.info("🔍 Ready to validate data mappings")
+                st.info("🔍 Mapping complete! Ready to validate data quality")
             else:
                 st.info("🔗 Complete field mapping to continue")
     
@@ -1817,7 +1817,7 @@ def _render_enhanced_progress(current_step):
     steps = [
         {"num": 1, "label": "Upload", "icon": "📤"},
         {"num": 2, "label": "Map", "icon": "🔗"},
-        {"num": 3, "label": "Validate", "icon": "✅"},
+        {"num": 3, "label": "Quality Check", "icon": "✅"},
         {"num": 4, "label": "Process", "icon": "🚀"}
     ]
     
@@ -1950,8 +1950,8 @@ def _render_validation_section(db_manager, data_processor):
     # Only expand if there are validation issues
     has_issues = st.session_state.get('validation_errors')
     
-    with st.expander("✅ **Data Validation**", expanded=bool(has_issues)):
-        st.caption("Validate your data before processing")
+    with st.expander("✅ **Data Quality Validation**", expanded=bool(has_issues)):
+        st.caption("Validate data quality and format compliance before processing")
         
         df = st.session_state.uploaded_df
         field_mappings = st.session_state.field_mappings

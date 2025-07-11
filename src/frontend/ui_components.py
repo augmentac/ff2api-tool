@@ -290,7 +290,7 @@ def render_workflow_progress(current_step: int = 1):
         steps = [
             {"num": 1, "label": "File Upload", "icon": "📂", "desc": "Upload CSV and validate headers"},
             {"num": 2, "label": "Smart Mapping", "icon": "🔗", "desc": "Map fields with intelligent suggestions"},
-            {"num": 3, "label": "Validation & Save", "icon": "✅", "desc": "Validate data and save configuration"},
+            {"num": 3, "label": "Quality Check", "icon": "✅", "desc": "Validate data quality and save configuration"},
             {"num": 4, "label": "Process & Results", "icon": "🚀", "desc": "Process data and view results"}
         ]
         
