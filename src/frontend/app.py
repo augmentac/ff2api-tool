@@ -540,6 +540,19 @@ def show_contextual_information(db_manager):
 
 def _render_brokerage_selection(db_manager):
     """Render compact brokerage selection"""
+    
+    # Display success message if brokerage was just created
+    if 'brokerage_creation_success' in st.session_state:
+        st.success(st.session_state.brokerage_creation_success)
+        # Clear the message after displaying it
+        del st.session_state.brokerage_creation_success
+    
+    # Display error message if brokerage creation failed
+    if 'brokerage_creation_error' in st.session_state:
+        st.error(st.session_state.brokerage_creation_error)
+        # Clear the message after displaying it
+        del st.session_state.brokerage_creation_error
+    
     try:
         brokerages = db_manager.get_all_brokerages()
         brokerage_options = [b['name'] for b in brokerages] if brokerages else []
@@ -578,8 +591,12 @@ def _render_brokerage_selection(db_manager):
                     if new_brokerage.strip():
                         st.session_state.brokerage_name = new_brokerage.strip()
                         st.session_state.show_new_brokerage_form = False
-                        st.success(f"✅ Created: {new_brokerage.strip()}")
+                        # Store success message in session state to persist across rerun
+                        st.session_state.brokerage_creation_success = f"✅ Created: {new_brokerage.strip()}"
                         st.rerun()
+                    else:
+                        # Store error message in session state to persist across rerun
+                        st.session_state.brokerage_creation_error = "❌ Please enter a brokerage name"
             with col2:
                 if st.button("Cancel", key="cancel_brokerage_btn", use_container_width=True):
                     st.session_state.show_new_brokerage_form = False
@@ -1113,6 +1130,19 @@ def _render_session_details():
 
 def _render_new_configuration_form(brokerage_name, db_manager):
     """Render compact new configuration form"""
+    
+    # Display success message if configuration was just saved
+    if 'config_save_success' in st.session_state:
+        st.success(st.session_state.config_save_success)
+        # Clear the message after displaying it
+        del st.session_state.config_save_success
+    
+    # Display error message if configuration save failed
+    if 'config_save_error' in st.session_state:
+        st.error(st.session_state.config_save_error)
+        # Clear the message after displaying it
+        del st.session_state.config_save_error
+    
     if 'config_form_state' not in st.session_state:
         st.session_state.config_form_state = {
             'config_name': '',
@@ -1214,18 +1244,18 @@ def _handle_save_configuration(brokerage_name, db_manager):
     
     # Validate required fields based on auth type
     if not config_name:
-        st.error("Please provide a configuration name")
+        st.session_state.config_save_error = "Please provide a configuration name"
         return
     
     if auth_type == 'api_key' and not api_key:
-        st.error("Please provide an API key for API key authentication")
+        st.session_state.config_save_error = "Please provide an API key for API key authentication"
         return
     elif auth_type == 'bearer_token' and not bearer_token:
-        st.error("Please provide a bearer token for bearer token authentication")
+        st.session_state.config_save_error = "Please provide a bearer token for bearer token authentication"
         return
     
     if not api_base_url:
-        st.error("Please provide an API base URL")
+        st.session_state.config_save_error = "Please provide an API base URL"
         return
     
     # Test API connection
@@ -1313,7 +1343,8 @@ def _handle_save_configuration(brokerage_name, db_manager):
                         'bearer_token': ''
                     }
                     
-                    st.success("✅ Configuration saved! Upload a file to continue.")
+                    # Store success message in session state to persist across rerun
+                    st.session_state.config_save_success = "✅ Configuration saved! Upload a file to continue."
                     
                     # Trigger backup suggestion after configuration creation
                     auto_backup_suggestion()
@@ -1321,12 +1352,12 @@ def _handle_save_configuration(brokerage_name, db_manager):
                     st.rerun()
                     
                 except Exception as db_error:
-                    st.error(f"❌ Failed to save configuration: {str(db_error)}")
+                    st.session_state.config_save_error = f"❌ Failed to save configuration: {str(db_error)}"
                     
             else:
-                st.error(f"❌ API connection failed: {result['message']}")
+                st.session_state.config_save_error = f"❌ API connection failed: {result['message']}"
         except Exception as e:
-            st.error(f"❌ Failed to test connection: {str(e)}")
+            st.session_state.config_save_error = f"❌ Failed to test connection: {str(e)}"
 
 def main_workflow(db_manager, data_processor):
     """Modern streamlined workflow with enhanced UX and progressive disclosure"""
