@@ -35,4 +35,4 @@ showErrorDetails = false
 [logger]
 # Logging configuration
 level = "warning"
-messageFormat = "%(asctime)s - %(name)s - %(levelname)s - %(message)s" 
+messageFormat = "%(asctime)s - %(name)s - %(levelname)s - %(message)s" # Force redeploy Fri Jul 11 14:22:24 CDT 2025
