@@ -446,12 +446,12 @@ class DatabaseManager:
                         VALUES (?, ?, ?, ?, ?, ?, ?)
                     ''', (
                         record.get('brokerage_name', record.get('customer_name', 'Unknown')),  # Handle both old and new formats
-                        record['filename'],
-                        record['total_records'],
-                        record['successful_records'],
-                        record['failed_records'],
-                        json.dumps(record['error_log']) if record['error_log'] else None,
-                        record['upload_timestamp']
+                        record.get('filename', 'unknown_file.csv'),
+                        record.get('total_records', 0),
+                        record.get('successful_records', 0),
+                        record.get('failed_records', 0),
+                        json.dumps(record.get('error_log')) if record.get('error_log') else None,
+                        record.get('upload_timestamp', datetime.now().isoformat())
                     ))
                     imported_history += 1
                 
