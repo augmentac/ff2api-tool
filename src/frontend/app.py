@@ -1547,21 +1547,23 @@ def _validate_headers_with_config(file_headers):
         'selected_configuration' in st.session_state):
         config = st.session_state.selected_configuration
         
-        # Check if config has real mappings
-        field_mappings = config.get('field_mappings', {})
-        has_real_mappings = any(not key.startswith('_') for key in field_mappings.keys())
+        # Always try to validate headers against saved config in database
+        # Don't rely on session state mappings which might be placeholders
+        from src.frontend.ui_components import create_header_validation_interface
+        from src.backend.database import DatabaseManager
+        db_manager = DatabaseManager()
         
-        if has_real_mappings:
-            # Validate headers against saved config
-            from src.frontend.ui_components import create_header_validation_interface
-            from src.backend.database import DatabaseManager
-            db_manager = DatabaseManager()
+        # Get the actual saved configuration from database
+        saved_config = db_manager.get_brokerage_configuration(brokerage_name, config['name'])
+        
+        if saved_config and saved_config.get('file_headers'):
+            # Compare headers with saved configuration
             header_comparison = create_header_validation_interface(
                 file_headers, db_manager, brokerage_name, config['name']
             )
             st.session_state.header_comparison = header_comparison
         else:
-            # Config exists but no real mappings - treat as new
+            # Config exists but no saved headers - treat as new
             st.session_state.header_comparison = {
                 'status': 'new_config',
                 'changes': [],
@@ -1917,6 +1919,12 @@ def _render_smart_mapping_section(db_manager, data_processor):
                     _save_configuration(db_manager, field_mappings, st.session_state.file_headers)
                     # Visual feedback to user
                     st.caption("💾 Field mappings auto-saved to configuration")
+                    
+                    # Re-run header validation now that we have saved headers in database
+                    # This will properly set the header comparison status to 'identical' if headers match
+                    if st.session_state.get('file_headers'):
+                        _validate_headers_with_config(st.session_state.file_headers)
+                    
                 except Exception as e:
                     st.caption(f"⚠️ Could not auto-save mappings: {str(e)}")
             else:
