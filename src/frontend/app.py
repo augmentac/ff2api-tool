@@ -311,13 +311,24 @@ def _render_configuration_status(config):
     
     validation_passed = st.session_state.get('validation_passed', False)
     
-    # Calculate readiness score with clearer validation distinction
+    # Calculate readiness score with real-time mapping progress
+    # Check actual mapping completeness for uploaded files
+    mapping_complete = False
+    if file_uploaded and has_real_mappings:
+        from src.frontend.ui_components import get_full_api_schema
+        api_schema = get_full_api_schema()
+        required_fields = {k: v for k, v in api_schema.items() if v.get('required', False)}
+        current_mappings = st.session_state.get('field_mappings', field_mappings)
+        mapped_required = len([f for f in required_fields.keys() if f in current_mappings and current_mappings[f] and current_mappings[f] != 'Select column...'])
+        total_required = len(required_fields)
+        mapping_complete = mapped_required >= total_required
+    
     readiness_checks = [
         ('API Connected', api_connected),
         ('Fields Mapped', has_real_mappings),
         ('File Uploaded', file_uploaded),
         ('Headers Validated', headers_validated or (not has_real_mappings and not file_uploaded)),
-        ('Mapping Ready', file_uploaded and has_real_mappings)  # Ready to validate, not validated yet
+        ('Mapping Ready', mapping_complete)  # All required fields actually mapped
     ]
     
     ready_count = sum(1 for _, is_ready in readiness_checks if is_ready)
@@ -709,8 +720,8 @@ def _render_configuration_selection(db_manager, brokerage_name):
                 except:
                     pass
                 
-                # Clear workflow state
-                keys_to_clear = ['uploaded_df', 'uploaded_file_name', 'file_headers', 'validation_passed', 'header_comparison', 'field_mappings', 'mapping_tab_index', 'processing_results', 'load_results', 'processing_in_progress']
+                # Clear workflow state and validation state
+                keys_to_clear = ['uploaded_df', 'uploaded_file_name', 'file_headers', 'validation_passed', 'header_comparison', 'field_mappings', 'mapping_tab_index', 'processing_results', 'load_results', 'processing_in_progress', 'validation_errors', 'mapping_section_expanded', 'processing_completed']
                 for key in keys_to_clear:
                     if key in st.session_state:
                         del st.session_state[key]
@@ -802,12 +813,23 @@ def _render_consolidated_status():
     validation_passed = st.session_state.get('validation_passed', False)
     processing_completed = st.session_state.get('processing_completed', False)
     
+    # Calculate mapping completeness in real-time
+    mapping_complete = False
+    if file_uploaded and has_real_mappings:
+        from src.frontend.ui_components import get_full_api_schema
+        api_schema = get_full_api_schema()
+        required_fields = {k: v for k, v in api_schema.items() if v.get('required', False)}
+        current_mappings = st.session_state.get('field_mappings', field_mappings)
+        mapped_required = len([f for f in required_fields.keys() if f in current_mappings and current_mappings[f] and current_mappings[f] != 'Select column...'])
+        total_required = len(required_fields)
+        mapping_complete = mapped_required >= total_required
+    
     readiness_checks = [
         ('API Connected', api_connected),
         ('Fields Mapped', has_real_mappings),
         ('File Uploaded', file_uploaded),
         ('Headers Validated', headers_validated or (not has_real_mappings and not file_uploaded)),
-        ('Mapping Ready', file_uploaded and has_real_mappings)  # Ready to validate, not validated yet
+        ('Mapping Ready', mapping_complete)  # All required fields actually mapped
     ]
     
     ready_count = sum(1 for _, is_ready in readiness_checks if is_ready)
@@ -1078,7 +1100,7 @@ def _render_smart_actions():
     col1, col2 = st.columns(2)
     with col1:
         if st.button("🔄 Reset", key="reset_action", use_container_width=True):
-            keys_to_clear = ['uploaded_df', 'uploaded_file_name', 'field_mappings', 'file_headers', 'validation_passed', 'header_comparison', 'mapping_tab_index', 'processing_results', 'load_results', 'processing_in_progress']
+            keys_to_clear = ['uploaded_df', 'uploaded_file_name', 'field_mappings', 'file_headers', 'validation_passed', 'header_comparison', 'mapping_tab_index', 'processing_results', 'load_results', 'processing_in_progress', 'validation_errors', 'mapping_section_expanded', 'processing_completed']
             for key in keys_to_clear:
                 if key in st.session_state:
                     del st.session_state[key]
@@ -1505,8 +1527,8 @@ def _render_enhanced_file_upload():
 def _process_uploaded_file(uploaded_file):
     """Process the uploaded file and update session state"""
     try:
-        # Clear processing state from previous session
-        keys_to_clear = ['processing_completed', 'validation_passed', 'field_mappings', 'header_comparison', 'mapping_tab_index', 'processing_results', 'load_results', 'processing_in_progress']
+        # Clear processing state from previous session and validation state
+        keys_to_clear = ['processing_completed', 'validation_passed', 'field_mappings', 'header_comparison', 'mapping_tab_index', 'processing_results', 'load_results', 'processing_in_progress', 'validation_errors', 'mapping_section_expanded']
         for key in keys_to_clear:
             if key in st.session_state:
                 del st.session_state[key]
@@ -1678,8 +1700,8 @@ def _render_current_file_info():
         col1, col2 = st.columns([1, 1])
         with col1:
             if st.button("📂 Upload Different File", key="change_file_btn", use_container_width=True):
-                # Clear file-related state
-                keys_to_clear = ['uploaded_df', 'uploaded_file_name', 'file_headers', 'validation_passed', 'header_comparison', 'field_mappings', 'mapping_tab_index', 'file_size', 'processing_completed', 'processing_results', 'load_results', 'processing_in_progress']
+                # Clear file-related state and validation state
+                keys_to_clear = ['uploaded_df', 'uploaded_file_name', 'file_headers', 'validation_passed', 'header_comparison', 'field_mappings', 'mapping_tab_index', 'file_size', 'processing_completed', 'processing_results', 'load_results', 'processing_in_progress', 'validation_errors', 'mapping_section_expanded']
                 for key in keys_to_clear:
                     if key in st.session_state:
                         del st.session_state[key]
@@ -2030,7 +2052,7 @@ def _render_processing_section(db_manager, data_processor):
             col1, col2, col3 = st.columns(3)
             with col1:
                 if st.button("🔄 Process Another File", type="primary", key="process_another_main", use_container_width=True):
-                    keys_to_clear = ['uploaded_df', 'uploaded_file_name', 'file_headers', 'validation_passed', 'header_comparison', 'field_mappings', 'mapping_tab_index', 'processing_completed', 'processing_results', 'load_results', 'processing_in_progress']
+                    keys_to_clear = ['uploaded_df', 'uploaded_file_name', 'file_headers', 'validation_passed', 'header_comparison', 'field_mappings', 'mapping_tab_index', 'processing_completed', 'processing_results', 'load_results', 'processing_in_progress', 'validation_errors', 'mapping_section_expanded']
                     for key in keys_to_clear:
                         if key in st.session_state:
                             del st.session_state[key]
