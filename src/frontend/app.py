@@ -2854,6 +2854,9 @@ def create_database_backup():
                 'configuration_name': config['name'],
                 'field_mappings': config['field_mappings'],
                 'api_credentials': config['api_credentials'],  # Will be re-encrypted on restore
+                'auth_type': config.get('auth_type', 'api_key'),
+                'bearer_token': config.get('bearer_token'),
+                'file_headers': config.get('file_headers'),
                 'created_at': config['created_at'],
                 'updated_at': config['updated_at'],
                 'description': config.get('description', '')

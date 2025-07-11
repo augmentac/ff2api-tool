@@ -397,29 +397,36 @@ class DatabaseManager:
                 
                 # Import brokerage configurations - new format
                 if 'brokerage_configurations' in import_data:
+                    logging.info(f"Found {len(import_data['brokerage_configurations'])} configurations to import")
                     for config in import_data['brokerage_configurations']:
-                        # Prepare API credentials - handle incomplete credentials from backup
-                        api_credentials = config.get('api_credentials', {})
-                        if not api_credentials.get('api_key') and not config.get('bearer_token'):
-                            # Skip configurations without proper credentials - they need to be reconfigured
-                            logging.warning(f"Skipping configuration '{config.get('configuration_name')}' for brokerage '{config.get('brokerage_name')}' - missing API credentials")
-                            continue
-                        
-                        # Ensure required fields exist with defaults
-                        auth_type = config.get('auth_type', 'api_key')
-                        field_mappings = config.get('field_mappings', {})
+                        config_name = config.get('configuration_name', 'Unknown')
+                        brokerage_name = config.get('brokerage_name', 'Unknown')
+                        logging.info(f"Processing configuration '{config_name}' for brokerage '{brokerage_name}'")
                         
                         # Validate that we have the minimum required data
                         if not config.get('brokerage_name') or not config.get('configuration_name'):
                             logging.warning(f"Skipping configuration with missing brokerage_name or configuration_name")
                             continue
                         
-                        # For configurations without proper API credentials, create placeholder
-                        if not api_credentials.get('api_key') and auth_type == 'api_key':
-                            api_credentials = {'base_url': api_credentials.get('base_url', ''), 'api_key': 'RESTORE_REQUIRED'}
-                        elif not config.get('bearer_token') and auth_type == 'bearer_token':
-                            api_credentials = {'base_url': api_credentials.get('base_url', '')}
-                            config['bearer_token'] = 'RESTORE_REQUIRED'
+                        # Ensure required fields exist with defaults
+                        auth_type = config.get('auth_type', 'api_key')
+                        field_mappings = config.get('field_mappings', {})
+                        api_credentials = config.get('api_credentials', {})
+                        bearer_token = config.get('bearer_token')
+                        
+                        logging.info(f"Configuration '{config_name}' has auth_type='{auth_type}', api_credentials keys: {list(api_credentials.keys())}, bearer_token present: {bearer_token is not None}")
+                        
+                        # Validate API credentials exist (don't create placeholders)
+                        if auth_type == 'api_key' and not api_credentials.get('api_key'):
+                            logging.warning(f"Skipping configuration '{config_name}' - missing API key")
+                            continue
+                        elif auth_type == 'bearer_token' and not bearer_token:
+                            logging.warning(f"Skipping configuration '{config_name}' - missing bearer token")
+                            continue
+                        
+                        # Ensure base_url exists
+                        if not api_credentials.get('base_url'):
+                            api_credentials['base_url'] = 'https://api.prod.goaugment.com'
                         
                         try:
                             # Use the save_brokerage_configuration method to ensure proper encryption and validation
@@ -431,11 +438,12 @@ class DatabaseManager:
                                 file_headers=config.get('file_headers'),
                                 description=config.get('description', ''),
                                 auth_type=auth_type,
-                                bearer_token=config.get('bearer_token')
+                                bearer_token=bearer_token
                             )
                             imported_configurations += 1
+                            logging.info(f"Successfully imported configuration '{config_name}' for brokerage '{brokerage_name}'")
                         except Exception as config_error:
-                            logging.error(f"Error importing configuration '{config.get('configuration_name')}': {config_error}")
+                            logging.error(f"Error importing configuration '{config_name}': {config_error}")
                             # Continue with other configurations
                 
                 # Import upload history
