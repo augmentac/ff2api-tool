@@ -296,14 +296,16 @@ def _render_configuration_status(config):
     field_mappings = config.get('field_mappings', {})
     has_real_mappings = any(not key.startswith('_') for key in field_mappings.keys())
     
+    # Only consider fields "mapped" if there's a file uploaded and mappings exist
+    file_uploaded = 'uploaded_df' in st.session_state
+    fields_actually_mapped = file_uploaded and has_real_mappings
+    
     # Fix API connection check to handle both auth types
     auth_type = config.get('auth_type', 'api_key')
     if auth_type == 'api_key':
         api_connected = 'api_credentials' in config and config['api_credentials'].get('api_key')
     else:  # bearer_token
         api_connected = 'api_credentials' in config and config.get('bearer_token')
-    
-    file_uploaded = 'uploaded_df' in st.session_state
     
     # Fix headers validation logic - headers can only be validated if file is uploaded
     headers_validated = (file_uploaded and 
@@ -328,9 +330,9 @@ def _render_configuration_status(config):
     
     readiness_checks = [
         ('API Connected', api_connected),
-        ('Fields Mapped', has_real_mappings),
+        ('Fields Mapped', fields_actually_mapped),
         ('File Uploaded', file_uploaded),
-        ('Headers Validated', headers_validated or (not has_real_mappings and not file_uploaded)),
+        ('Headers Validated', headers_validated or (not fields_actually_mapped and not file_uploaded)),
         ('Mapping Ready', mapping_complete)  # All required fields actually mapped
     ]
     
@@ -407,7 +409,7 @@ def _render_configuration_status(config):
     elif readiness_percentage >= 40:
         if not file_uploaded:
             st.info("📁 Upload a file to continue with field mapping")
-        elif not has_real_mappings:
+        elif not fields_actually_mapped:
             st.info("🔗 Complete field mapping to lock configuration")
     
     # Connection status indicator
@@ -800,14 +802,16 @@ def _render_consolidated_status():
     field_mappings = config.get('field_mappings', {})
     has_real_mappings = any(not key.startswith('_') for key in field_mappings.keys())
     
+    # Only consider fields "mapped" if there's a file uploaded and mappings exist
+    file_uploaded = 'uploaded_df' in st.session_state
+    fields_actually_mapped = file_uploaded and has_real_mappings
+    
     # Fix API connection check to handle both auth types
     auth_type = config.get('auth_type', 'api_key')
     if auth_type == 'api_key':
         api_connected = 'api_credentials' in config and config['api_credentials'].get('api_key')
     else:  # bearer_token
         api_connected = 'api_credentials' in config and config.get('bearer_token')
-    
-    file_uploaded = 'uploaded_df' in st.session_state
     
     # Fix headers validation logic - headers can only be validated if file is uploaded
     headers_validated = (file_uploaded and 
@@ -832,9 +836,9 @@ def _render_consolidated_status():
     
     readiness_checks = [
         ('API Connected', api_connected),
-        ('Fields Mapped', has_real_mappings),
+        ('Fields Mapped', fields_actually_mapped),
         ('File Uploaded', file_uploaded),
-        ('Headers Validated', headers_validated or (not has_real_mappings and not file_uploaded)),
+        ('Headers Validated', headers_validated or (not fields_actually_mapped and not file_uploaded)),
         ('Mapping Ready', mapping_complete)  # All required fields actually mapped
     ]
     
@@ -1041,7 +1045,7 @@ def _render_consolidated_status():
         missing_items = []
         if not api_connected:
             missing_items.append("API connection")
-        if not has_real_mappings:
+        if not fields_actually_mapped:
             missing_items.append("field mappings")
         if not file_uploaded:
             missing_items.append("file upload")
