@@ -1902,6 +1902,26 @@ def _render_smart_mapping_section(db_manager, data_processor):
         
         st.session_state.field_mappings = field_mappings
         
+        # Auto-save field mappings to database when they're updated
+        # This ensures mappings are preserved even if user doesn't complete validation
+        if (field_mappings and 
+            st.session_state.get('selected_configuration') and 
+            st.session_state.get('file_headers')):
+            
+            # Check if mappings have real content (not just placeholders)
+            has_real_mappings = any(not key.startswith('_') for key in field_mappings.keys())
+            
+            if has_real_mappings:
+                # Save mappings to database immediately
+                try:
+                    _save_configuration(db_manager, field_mappings, st.session_state.file_headers)
+                    # Visual feedback to user
+                    st.caption("💾 Field mappings auto-saved to configuration")
+                except Exception as e:
+                    st.caption(f"⚠️ Could not auto-save mappings: {str(e)}")
+            else:
+                st.caption("📝 Complete field mapping to save configuration")
+        
         # Progress indicator
         api_schema = get_full_api_schema()
         required_fields = {k: v for k, v in api_schema.items() if v.get('required', False)}
@@ -1953,9 +1973,19 @@ def _render_validation_section(db_manager, data_processor):
                     st.session_state.validation_passed = True
                     st.success("✅ All data validated successfully!")
                 
-                # Save configuration
+                # Save configuration (if not already auto-saved)
                 if st.session_state.get('validation_passed'):
-                    _save_configuration(db_manager, field_mappings, file_headers)
+                    # Check if configuration was already auto-saved in mapping section
+                    config = st.session_state.selected_configuration
+                    current_mappings = config.get('field_mappings', {})
+                    has_current_mappings = any(not key.startswith('_') for key in current_mappings.keys())
+                    
+                    if not has_current_mappings:
+                        # Only save if not already saved
+                        _save_configuration(db_manager, field_mappings, file_headers)
+                        st.success("✅ Configuration saved to database!")
+                    else:
+                        st.success("✅ Configuration already saved!")
                     
                     # Trigger backup suggestion after configuration is saved
                     auto_backup_suggestion()
@@ -2152,7 +2182,9 @@ def _save_configuration(db_manager, field_mappings, file_headers):
             field_mappings=field_mappings,
             api_credentials=config['api_credentials'],
             file_headers=file_headers,
-            description=config.get('description', '')
+            description=config.get('description', ''),
+            auth_type=config.get('auth_type', 'api_key'),
+            bearer_token=config.get('bearer_token')
         )
         
         # Update session state
