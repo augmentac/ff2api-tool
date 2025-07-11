@@ -312,16 +312,19 @@ def _render_configuration_status(config):
     validation_passed = st.session_state.get('validation_passed', False)
     
     # Calculate readiness score with real-time mapping progress
-    # Check actual mapping completeness for uploaded files
+    # Check actual mapping completeness for uploaded files - always check when file is uploaded
     mapping_complete = False
-    if file_uploaded and has_real_mappings:
+    mapped_required = 0
+    total_required = 0
+    
+    if file_uploaded:
         from src.frontend.ui_components import get_full_api_schema
         api_schema = get_full_api_schema()
         required_fields = {k: v for k, v in api_schema.items() if v.get('required', False)}
         current_mappings = st.session_state.get('field_mappings', field_mappings)
         mapped_required = len([f for f in required_fields.keys() if f in current_mappings and current_mappings[f] and current_mappings[f] != 'Select column...'])
         total_required = len(required_fields)
-        mapping_complete = mapped_required >= total_required
+        mapping_complete = mapped_required >= total_required and total_required > 0
     
     readiness_checks = [
         ('API Connected', api_connected),
@@ -813,16 +816,19 @@ def _render_consolidated_status():
     validation_passed = st.session_state.get('validation_passed', False)
     processing_completed = st.session_state.get('processing_completed', False)
     
-    # Calculate mapping completeness in real-time
+    # Calculate mapping completeness in real-time - always check when file is uploaded
     mapping_complete = False
-    if file_uploaded and has_real_mappings:
+    mapped_required = 0
+    total_required = 0
+    
+    if file_uploaded:
         from src.frontend.ui_components import get_full_api_schema
         api_schema = get_full_api_schema()
         required_fields = {k: v for k, v in api_schema.items() if v.get('required', False)}
         current_mappings = st.session_state.get('field_mappings', field_mappings)
         mapped_required = len([f for f in required_fields.keys() if f in current_mappings and current_mappings[f] and current_mappings[f] != 'Select column...'])
         total_required = len(required_fields)
-        mapping_complete = mapped_required >= total_required
+        mapping_complete = mapped_required >= total_required and total_required > 0
     
     readiness_checks = [
         ('API Connected', api_connected),
@@ -844,8 +850,14 @@ def _render_consolidated_status():
         bg_color = "linear-gradient(135deg, #ecfdf5 0%, #d1fae5 100%)"
         border_gradient = "linear-gradient(135deg, #10b981 0%, #059669 100%)"
     else:
-        # Modern status determination with updated terminology
-        if readiness_percentage == 100:
+        # Modern status determination with updated terminology - prioritize mapping completeness
+        if file_uploaded and total_required > 0 and not mapping_complete:
+            # File uploaded but mapping incomplete - show mapping status
+            status_text = "📋 MAPPING"
+            status_color = "#d97706"  # Modern amber
+            bg_color = "linear-gradient(135deg, #fffbeb 0%, #fef3c7 100%)"
+            border_gradient = "linear-gradient(135deg, #f59e0b 0%, #d97706 100%)"
+        elif readiness_percentage == 100:
             status_text = "✅ COMPLETE"
             status_color = "#059669"  # Modern emerald
             bg_color = "linear-gradient(135deg, #ecfdf5 0%, #d1fae5 100%)"
@@ -906,7 +918,7 @@ def _render_consolidated_status():
                     background: rgba(255, 255, 255, 0.6);
                     padding: 2px 6px;
                     border-radius: 8px;
-">{"5/5" if processing_completed else f"{ready_count}/{total_checks}"}</div>
+">{"5/5" if processing_completed else f"{mapped_required}/{total_required}" if file_uploaded and total_required > 0 else f"{ready_count}/{total_checks}"}</div>
             </div>
             <div style="
                 background: rgba(255, 255, 255, 0.4);
@@ -942,6 +954,24 @@ def _render_consolidated_status():
                     border: 1px solid rgba(16, 185, 129, 0.2);
                     text-align: center;
                 ">✅ Complete</div>
+            </div>
+        ''', unsafe_allow_html=True)
+    elif file_uploaded and total_required > 0 and not mapping_complete:
+        # Show mapping progress message
+        st.markdown(f'''
+            <div style="margin: 8px 0;">
+                <div style="
+                    background: linear-gradient(135deg, #fef3c7 0%, #fde68a 100%);
+                    color: #92400e; 
+                    padding: 8px 12px; 
+                    border-radius: 10px; 
+                    font-size: 0.9rem;
+                    font-weight: 500;
+                    box-shadow: 0 2px 8px rgba(245, 158, 11, 0.2);
+                    border: 1px solid rgba(245, 158, 11, 0.3);
+                    text-align: center;
+                    letter-spacing: 0.025em;
+                ">📋 Map {total_required - mapped_required} more fields</div>
             </div>
         ''', unsafe_allow_html=True)
     elif readiness_percentage == 100:
