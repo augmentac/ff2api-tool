@@ -363,32 +363,80 @@ class DatabaseManager:
                 json_content = zipf.read(json_files[0])
                 import_data = json.loads(json_content)
             
-            # Validate import data structure
-            if not all(key in import_data for key in ['export_info', 'customer_mappings', 'upload_history']):
-                return {'success': False, 'error': 'Invalid import data structure'}
+            # Validate import data structure - support both old and new formats
+            has_old_format = all(key in import_data for key in ['export_info', 'customer_mappings', 'upload_history'])
+            has_new_format = all(key in import_data for key in ['backup_info', 'brokerage_configurations', 'upload_history'])
             
-            # Import customer mappings
+            if not (has_old_format or has_new_format):
+                return {'success': False, 'error': 'Invalid import data structure. Expected either old format (export_info, customer_mappings, upload_history) or new format (backup_info, brokerage_configurations, upload_history)'}
+            
+            # Import customer mappings and brokerage configurations
             imported_mappings = 0
+            imported_configurations = 0
             imported_history = 0
             
             conn = sqlite3.connect(self.db_path)
             cursor = conn.cursor()
             
             try:
-                # Import customer mappings (skip API credentials for security)
-                for mapping in import_data['customer_mappings']:
-                    cursor.execute('''
-                        INSERT OR IGNORE INTO customer_mappings 
-                        (customer_name, field_mappings, api_credentials, created_at, updated_at)
-                        VALUES (?, ?, ?, ?, ?)
-                    ''', (
-                        mapping['customer_name'],
-                        json.dumps(mapping['field_mappings']),
-                        json.dumps({'base_url': '', 'api_key': ''}),  # Empty credentials
-                        mapping.get('created_at', datetime.now().isoformat()),
-                        mapping.get('updated_at', datetime.now().isoformat())
-                    ))
-                    imported_mappings += 1
+                # Import customer mappings (skip API credentials for security) - legacy format
+                if 'customer_mappings' in import_data:
+                    for mapping in import_data['customer_mappings']:
+                        cursor.execute('''
+                            INSERT OR IGNORE INTO customer_mappings 
+                            (customer_name, field_mappings, api_credentials, created_at, updated_at)
+                            VALUES (?, ?, ?, ?, ?)
+                        ''', (
+                            mapping['customer_name'],
+                            json.dumps(mapping['field_mappings']),
+                            json.dumps({'base_url': '', 'api_key': ''}),  # Empty credentials
+                            mapping.get('created_at', datetime.now().isoformat()),
+                            mapping.get('updated_at', datetime.now().isoformat())
+                        ))
+                        imported_mappings += 1
+                
+                # Import brokerage configurations - new format
+                if 'brokerage_configurations' in import_data:
+                    for config in import_data['brokerage_configurations']:
+                        # Prepare API credentials - handle incomplete credentials from backup
+                        api_credentials = config.get('api_credentials', {})
+                        if not api_credentials.get('api_key') and not config.get('bearer_token'):
+                            # Skip configurations without proper credentials - they need to be reconfigured
+                            logging.warning(f"Skipping configuration '{config.get('configuration_name')}' for brokerage '{config.get('brokerage_name')}' - missing API credentials")
+                            continue
+                        
+                        # Ensure required fields exist with defaults
+                        auth_type = config.get('auth_type', 'api_key')
+                        field_mappings = config.get('field_mappings', {})
+                        
+                        # Validate that we have the minimum required data
+                        if not config.get('brokerage_name') or not config.get('configuration_name'):
+                            logging.warning(f"Skipping configuration with missing brokerage_name or configuration_name")
+                            continue
+                        
+                        # For configurations without proper API credentials, create placeholder
+                        if not api_credentials.get('api_key') and auth_type == 'api_key':
+                            api_credentials = {'base_url': api_credentials.get('base_url', ''), 'api_key': 'RESTORE_REQUIRED'}
+                        elif not config.get('bearer_token') and auth_type == 'bearer_token':
+                            api_credentials = {'base_url': api_credentials.get('base_url', '')}
+                            config['bearer_token'] = 'RESTORE_REQUIRED'
+                        
+                        try:
+                            # Use the save_brokerage_configuration method to ensure proper encryption and validation
+                            self.save_brokerage_configuration(
+                                brokerage_name=config['brokerage_name'],
+                                configuration_name=config['configuration_name'],
+                                field_mappings=field_mappings,
+                                api_credentials=api_credentials,
+                                file_headers=config.get('file_headers'),
+                                description=config.get('description', ''),
+                                auth_type=auth_type,
+                                bearer_token=config.get('bearer_token')
+                            )
+                            imported_configurations += 1
+                        except Exception as config_error:
+                            logging.error(f"Error importing configuration '{config.get('configuration_name')}': {config_error}")
+                            # Continue with other configurations
                 
                 # Import upload history
                 for record in import_data['upload_history']:
@@ -421,6 +469,7 @@ class DatabaseManager:
                 return {
                     'success': True,
                     'imported_mappings': imported_mappings,
+                    'imported_configurations': imported_configurations,
                     'imported_history': imported_history,
                     'imported_learning': imported_learning
                 }

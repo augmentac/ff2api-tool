@@ -2805,9 +2805,22 @@ def render_database_management_section():
         if uploaded_backup:
             if st.button("🔄 Restore Database"):
                 try:
-                    restore_result = restore_database_from_backup(uploaded_backup)
+                    restore_result = restore_database_from_backup(uploaded_backup, db_manager)
                     if restore_result['success']:
-                        st.success("✅ Database restored successfully!")
+                        # Show detailed success message
+                        success_msg = "✅ Database restored successfully!"
+                        details = []
+                        if restore_result.get('imported_configurations', 0) > 0:
+                            details.append(f"{restore_result['imported_configurations']} configurations")
+                        if restore_result.get('imported_mappings', 0) > 0:
+                            details.append(f"{restore_result['imported_mappings']} legacy mappings")
+                        if restore_result.get('imported_history', 0) > 0:
+                            details.append(f"{restore_result['imported_history']} upload records")
+                        
+                        if details:
+                            success_msg += f"\nImported: {', '.join(details)}"
+                        
+                        st.success(success_msg)
                         st.rerun()
                     else:
                         st.error(f"❌ Restore failed: {restore_result['error']}")
@@ -2885,112 +2898,35 @@ def create_database_backup():
     
     return json.dumps(backup_data, indent=2)
 
-def restore_database_from_backup(uploaded_file):
+def restore_database_from_backup(uploaded_file, db_manager):
     """Restore database from uploaded backup"""
     try:
-        backup_data = json.loads(uploaded_file.read())
+        # Create a temporary file for the import_data method which expects a zip file
+        import tempfile
+        import zipfile
         
-        # Validate backup format
-        required_keys = ['backup_info', 'brokerage_configurations', 'upload_history']
-        if not all(key in backup_data for key in required_keys):
-            return {'success': False, 'error': 'Invalid backup file format'}
+        # Read the JSON data
+        uploaded_file.seek(0)  # Reset file pointer
+        json_data = uploaded_file.read()
         
-        from src.backend.database import DatabaseManager
-        db_manager = DatabaseManager()
+        # Create a temporary zip file containing the JSON
+        with tempfile.NamedTemporaryFile(mode='w+b', suffix='.zip', delete=False) as temp_zip:
+            with zipfile.ZipFile(temp_zip, 'w', zipfile.ZIP_DEFLATED) as zipf:
+                zipf.writestr('backup.json', json_data)
+            temp_zip_path = temp_zip.name
         
-        # Restore configurations
-        restored_configs = 0
-        for config in backup_data['brokerage_configurations']:
+        try:
+            # Use the improved import_data method from DatabaseManager
+            result = db_manager.import_data(temp_zip_path)
+            return result
+        finally:
+            # Clean up temporary file
+            import os
             try:
-                config_id = db_manager.save_brokerage_configuration(
-                    brokerage_name=config['brokerage_name'],
-                    configuration_name=config['configuration_name'],
-                    field_mappings=config['field_mappings'],
-                    api_credentials=config['api_credentials'],
-                    description=config.get('description', '')
-                )
-                restored_configs += 1
-            except Exception as e:
-                # Log but continue with other configs
-                logger.warning(f"Failed to restore config {config['configuration_name']}: {e}")
+                os.unlink(temp_zip_path)
+            except:
+                pass
         
-        # Restore upload history with proper data type conversion
-        restored_history = 0
-        for record in backup_data['upload_history']:
-            try:
-                # Convert and validate data types to ensure SQLite compatibility
-                def safe_convert_to_int(value, default=0):
-                    """Safely convert value to integer, handling various data types"""
-                    if value is None:
-                        return default
-                    if isinstance(value, (int, float)):
-                        return int(value)
-                    if isinstance(value, str):
-                        try:
-                            return int(float(value))
-                        except (ValueError, TypeError):
-                            return default
-                    if isinstance(value, dict):
-                        # Handle case where value is accidentally a dict
-                        return default
-                    return default
-                
-                def safe_convert_to_str(value, default=""):
-                    """Safely convert value to string"""
-                    if value is None:
-                        return default
-                    if isinstance(value, (str, int, float)):
-                        return str(value)
-                    if isinstance(value, dict):
-                        # If it's a dict, try to get a reasonable string representation
-                        return str(value)
-                    return default
-                
-                # Extract and validate all parameters
-                brokerage_name = safe_convert_to_str(record.get('brokerage_name'), 'Unknown')
-                configuration_name = safe_convert_to_str(record.get('configuration_name'), 'Unknown')
-                filename = safe_convert_to_str(record.get('filename'), 'unknown_file.csv')
-                total_records = safe_convert_to_int(record.get('total_records'), 0)
-                successful_records = safe_convert_to_int(record.get('successful_records'), 0)
-                failed_records = safe_convert_to_int(record.get('failed_records'), 0)
-                
-                # Validate that the integers make sense
-                if total_records < 0:
-                    total_records = 0
-                if successful_records < 0:
-                    successful_records = 0
-                if failed_records < 0:
-                    failed_records = 0
-                
-                # Ensure successful + failed doesn't exceed total
-                if successful_records + failed_records > total_records:
-                    total_records = successful_records + failed_records
-                
-                db_manager.save_upload_history_enhanced(
-                    brokerage_name=brokerage_name,
-                    configuration_name=configuration_name,
-                    filename=filename,
-                    total_records=total_records,
-                    successful_records=successful_records,
-                    failed_records=failed_records,
-                    error_log=None,
-                    processing_time=0.0,
-                    file_headers=None,
-                    session_id=f"restored_{datetime.now().isoformat()}"
-                )
-                restored_history += 1
-            except Exception as e:
-                logger.warning(f"Failed to restore upload record {record.get('filename', 'unknown')}: {e}")
-                # Continue with other records
-        
-        return {
-            'success': True,
-            'configs_restored': restored_configs,
-            'history_restored': restored_history
-        }
-        
-    except json.JSONDecodeError:
-        return {'success': False, 'error': 'Invalid JSON format'}
     except Exception as e:
         return {'success': False, 'error': str(e)}
 
