@@ -544,14 +544,14 @@ def _render_brokerage_selection(db_manager):
     # Display success message if brokerage was just created
     if 'brokerage_creation_success' in st.session_state:
         st.success(st.session_state.brokerage_creation_success)
-        # Clear the message after displaying it
-        del st.session_state.brokerage_creation_success
+        # Mark for clearing instead of clearing immediately
+        st.session_state.brokerage_creation_success_shown = True
     
     # Display error message if brokerage creation failed
     if 'brokerage_creation_error' in st.session_state:
         st.error(st.session_state.brokerage_creation_error)
-        # Clear the message after displaying it
-        del st.session_state.brokerage_creation_error
+        # Mark for clearing instead of clearing immediately
+        st.session_state.brokerage_creation_error_shown = True
     
     try:
         brokerages = db_manager.get_all_brokerages()
@@ -629,7 +629,10 @@ def _render_brokerage_selection(db_manager):
                 del st.session_state['api_credentials']
             
             st.session_state.brokerage_name = new_brokerage
-            st.rerun()
+            
+            # Don't rerun if we just created a brokerage and have a success message to show
+            if not st.session_state.get('brokerage_creation_success'):
+                st.rerun()
         else:
             st.session_state.brokerage_name = new_brokerage
     elif selected_brokerage == "-- Choose a brokerage --":
@@ -641,6 +644,17 @@ def _render_brokerage_selection(db_manager):
             if 'api_credentials' in st.session_state:
                 del st.session_state['api_credentials']
             st.rerun()
+    
+    # Clear success/error messages after all processing is done
+    if st.session_state.get('brokerage_creation_success_shown'):
+        if 'brokerage_creation_success' in st.session_state:
+            del st.session_state.brokerage_creation_success
+        del st.session_state.brokerage_creation_success_shown
+    
+    if st.session_state.get('brokerage_creation_error_shown'):
+        if 'brokerage_creation_error' in st.session_state:
+            del st.session_state.brokerage_creation_error
+        del st.session_state.brokerage_creation_error_shown
 
 def _render_configuration_selection(db_manager, brokerage_name):
     """Render compact configuration selection"""
@@ -1134,14 +1148,14 @@ def _render_new_configuration_form(brokerage_name, db_manager):
     # Display success message if configuration was just saved
     if 'config_save_success' in st.session_state:
         st.success(st.session_state.config_save_success)
-        # Clear the message after displaying it
-        del st.session_state.config_save_success
+        # Mark for clearing instead of clearing immediately
+        st.session_state.config_save_success_shown = True
     
     # Display error message if configuration save failed
     if 'config_save_error' in st.session_state:
         st.error(st.session_state.config_save_error)
-        # Clear the message after displaying it
-        del st.session_state.config_save_error
+        # Mark for clearing instead of clearing immediately
+        st.session_state.config_save_error_shown = True
     
     if 'config_form_state' not in st.session_state:
         st.session_state.config_form_state = {
@@ -1226,6 +1240,17 @@ def _render_new_configuration_form(brokerage_name, db_manager):
                 'bearer_token': ''
             }
             st.rerun()
+    
+    # Clear success/error messages after all processing is done
+    if st.session_state.get('config_save_success_shown'):
+        if 'config_save_success' in st.session_state:
+            del st.session_state.config_save_success
+        del st.session_state.config_save_success_shown
+    
+    if st.session_state.get('config_save_error_shown'):
+        if 'config_save_error' in st.session_state:
+            del st.session_state.config_save_error
+        del st.session_state.config_save_error_shown
 
 def _has_session_data():
     """Check if there's relevant session data to show"""
