@@ -559,6 +559,11 @@ def _render_brokerage_selection(db_manager):
     except:
         brokerage_options = []
     
+    # Add newly created brokerage to options if it's not in database yet
+    current_brokerage = st.session_state.get('brokerage_name', '')
+    if current_brokerage and current_brokerage not in brokerage_options:
+        brokerage_options.append(current_brokerage)
+    
     if brokerage_options:
         # Improved dropdown with better default selection
         current_brokerage = st.session_state.get('brokerage_name', '')
@@ -636,8 +641,10 @@ def _render_brokerage_selection(db_manager):
         else:
             st.session_state.brokerage_name = new_brokerage
     elif selected_brokerage == "-- Choose a brokerage --":
-        # Clear brokerage selection if user selects the default option
-        if 'brokerage_name' in st.session_state:
+        # Only clear brokerage selection if user intentionally selects default option
+        # Don't clear if we have a newly created brokerage that just isn't in DB yet
+        if ('brokerage_name' in st.session_state and 
+            not st.session_state.get('brokerage_creation_success')):
             del st.session_state['brokerage_name']
             if 'selected_configuration' in st.session_state:
                 del st.session_state['selected_configuration']
