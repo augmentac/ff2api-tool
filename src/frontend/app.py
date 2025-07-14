@@ -2817,7 +2817,10 @@ def _make_error_user_friendly(error_str):
         'customer.name': 'Customer Name',
         'load.items.0.quantity': 'Item Quantity',
         'load.items.0.totalWeightLbs': 'Total Weight (lbs)',
-        'bidCriteria.targetCostUsd': 'Target Cost ($)'
+        'bidCriteria.targetCostUsd': 'Target Cost ($)',
+        'carrier.name': 'Carrier Name',
+        'carrier.dotNumber': 'DOT Number',
+        'carrier.mcNumber': 'MC Number'
     }
     
     # Replace technical field names with user-friendly ones

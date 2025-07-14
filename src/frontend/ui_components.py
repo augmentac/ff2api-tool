@@ -70,6 +70,7 @@ def get_full_api_schema():
         # Carrier Information
         'carrier.name': {'type': 'string', 'required': False, 'description': 'Carrier Name'},
         'carrier.dotNumber': {'type': 'number', 'required': False, 'description': 'DOT Number'},
+        'carrier.mcNumber': {'type': 'number', 'required': False, 'description': 'MC Number'},
         'carrier.contacts.0.name': {'type': 'string', 'required': False, 'description': 'Carrier Contact Name'},
         'carrier.contacts.0.email': {'type': 'string', 'required': False, 'description': 'Carrier Contact Email'},
         'carrier.contacts.0.phone': {'type': 'string', 'required': False, 'description': 'Carrier Contact Phone'},

@@ -235,7 +235,10 @@ class DataProcessor:
             'customer.customerId': 'customer account identifier',
             'customer.name': 'customer business name',
             'load.items.0.quantity': 'number of items/pallets',
-            'load.items.0.totalWeightLbs': 'total shipment weight in pounds'
+            'load.items.0.totalWeightLbs': 'total shipment weight in pounds',
+            'carrier.name': 'trucking company or carrier business name',
+            'carrier.dotNumber': 'Department of Transportation number',
+            'carrier.mcNumber': 'Motor Carrier number (federal identifier)'
         }
         return descriptions.get(field_path, 'required for shipment processing')
     
