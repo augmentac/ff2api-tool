@@ -32,7 +32,7 @@ class DataProcessor:
                 required_fields.append(field_name)
         
         # Add conditional requirements based on data presence
-        if row_data:
+        if row_data is not None and not row_data.empty:
             # If any item fields are present, require core item fields
             has_item_data = any(col.startswith('load.items.') for col in row_data.keys())
             if has_item_data:
@@ -973,7 +973,8 @@ class DataProcessor:
             # SCHEMA-DRIVEN VALIDATION: Get required fields from API schema instead of hard-coded list
             required_fields = self._get_required_fields_from_schema(row)
             for field in required_fields:
-                if field not in row or pd.isna(row.get(field)) or str(row.get(field, '')).strip() == '':
+                field_value = row.get(field)
+                if field not in row or pd.isna(field_value) or str(field_value if field_value is not None else '').strip() == '':
                     # Create more descriptive error messages
                     field_description = self._get_field_description(field)
                     row_errors.append(f"Missing required field: {field} ({field_description})")
