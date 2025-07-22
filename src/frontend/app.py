@@ -575,11 +575,6 @@ def _render_brokerage_selection(db_manager):
     except:
         brokerage_options = []
     
-    # Add newly created brokerage to options if it's not in database yet
-    current_brokerage = st.session_state.get('brokerage_name', '')
-    if current_brokerage and current_brokerage not in brokerage_options:
-        brokerage_options.append(current_brokerage)
-    
     if brokerage_options:
         # Improved dropdown with better default selection
         current_brokerage = st.session_state.get('brokerage_name', '')
@@ -610,11 +605,16 @@ def _render_brokerage_selection(db_manager):
             with col1:
                 if st.button("Create", key="create_brokerage_btn", use_container_width=True):
                     if new_brokerage.strip():
-                        st.session_state.brokerage_name = new_brokerage.strip()
-                        st.session_state.show_new_brokerage_form = False
-                        # Store success message in session state to persist across rerun
-                        st.session_state.brokerage_creation_success = f"✅ Created: {new_brokerage.strip()}"
-                        st.rerun()
+                        # Create brokerage in database
+                        if db_manager.create_brokerage(new_brokerage.strip()):
+                            st.session_state.brokerage_name = new_brokerage.strip()
+                            st.session_state.show_new_brokerage_form = False
+                            # Store success message in session state to persist across rerun
+                            st.session_state.brokerage_creation_success = f"✅ Created: {new_brokerage.strip()}"
+                            st.rerun()
+                        else:
+                            # Store error message in session state to persist across rerun
+                            st.session_state.brokerage_creation_error = "❌ Failed to create brokerage. Please try again."
                     else:
                         # Store error message in session state to persist across rerun
                         st.session_state.brokerage_creation_error = "❌ Please enter a brokerage name"

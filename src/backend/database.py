@@ -20,6 +20,17 @@ class DatabaseManager:
         conn = sqlite3.connect(self.db_path)
         cursor = conn.cursor()
         
+        # Standalone brokerages table
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS brokerages (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                name TEXT NOT NULL UNIQUE,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                is_active BOOLEAN DEFAULT 1
+            )
+        ''')
+        
         # Enhanced brokerage configurations table
         cursor.execute('''
             CREATE TABLE IF NOT EXISTS brokerage_configurations (
@@ -37,7 +48,8 @@ class DatabaseManager:
                 version INTEGER DEFAULT 1,
                 is_active BOOLEAN DEFAULT 1,
                 description TEXT,
-                UNIQUE(brokerage_name, configuration_name)
+                UNIQUE(brokerage_name, configuration_name),
+                FOREIGN KEY (brokerage_name) REFERENCES brokerages (name) ON UPDATE CASCADE
             )
         ''')
         
@@ -874,6 +886,10 @@ class DatabaseManager:
             raise ValueError("Invalid brokerage name")
         if not configuration_name or not isinstance(configuration_name, str):
             raise ValueError("Invalid configuration name")
+        
+        # Ensure brokerage exists in brokerages table
+        self.create_brokerage(brokerage_name)
+        
         if len(brokerage_name) > 100:
             raise ValueError("Brokerage name too long")
         if field_mappings is None or not isinstance(field_mappings, dict):
@@ -1077,18 +1093,50 @@ class DatabaseManager:
         conn.commit()
         conn.close()
 
+    def create_brokerage(self, brokerage_name):
+        """Create a new brokerage entry"""
+        try:
+            conn = sqlite3.connect(self.db_path)
+            cursor = conn.cursor()
+            
+            cursor.execute('''
+                INSERT OR IGNORE INTO brokerages (name)
+                VALUES (?)
+            ''', (brokerage_name,))
+            
+            conn.commit()
+            conn.close()
+            return True
+        except Exception as e:
+            logging.error(f"Error creating brokerage {brokerage_name}: {str(e)}")
+            return False
+
     def get_all_brokerages(self):
-        """Get list of all brokerages"""
+        """Get list of all brokerages including standalone brokerages"""
         conn = sqlite3.connect(self.db_path)
         cursor = conn.cursor()
         
+        # Get all brokerages from the brokerages table with their configuration counts
         cursor.execute('''
-            SELECT DISTINCT brokerage_name, COUNT(*) as config_count,
-                   MAX(last_used_at) as last_used
-            FROM brokerage_configurations 
-            WHERE is_active = 1
-            GROUP BY brokerage_name
-            ORDER BY last_used DESC, brokerage_name
+            SELECT 
+                b.name,
+                COALESCE(config_counts.config_count, 0) as config_count,
+                config_counts.last_used
+            FROM brokerages b
+            LEFT JOIN (
+                SELECT 
+                    brokerage_name, 
+                    COUNT(*) as config_count,
+                    MAX(last_used_at) as last_used
+                FROM brokerage_configurations 
+                WHERE is_active = 1
+                GROUP BY brokerage_name
+            ) config_counts ON b.name = config_counts.brokerage_name
+            WHERE b.is_active = 1
+            ORDER BY 
+                config_counts.last_used DESC NULLS LAST,
+                b.created_at DESC,
+                b.name
         ''')
         
         results = cursor.fetchall()
