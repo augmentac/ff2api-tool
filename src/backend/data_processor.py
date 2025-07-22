@@ -4,11 +4,82 @@ from typing import Dict, List, Any, Tuple, Optional
 import logging
 from datetime import datetime
 import re
+import sys
+import os
+
+# Add path to import API schema
+sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+try:
+    from src.frontend.ui_components import get_full_api_schema
+except ImportError:
+    # Fallback if import fails
+    def get_full_api_schema():
+        return {}
 
 class DataProcessor:
     def __init__(self):
         self.logger = logging.getLogger(__name__)
         self.enum_schema = self._get_enum_schema()
+        self.api_schema = get_full_api_schema()
+    
+    def _get_required_fields_from_schema(self, row_data=None) -> List[str]:
+        """Get required fields from the API schema, with conditional logic"""
+        required_fields = []
+        
+        # Get all fields marked as required in the API schema
+        for field_name, field_info in self.api_schema.items():
+            if field_info.get('required', False):
+                required_fields.append(field_name)
+        
+        # Add conditional requirements based on data presence
+        if row_data:
+            # If any item fields are present, require core item fields
+            has_item_data = any(col.startswith('load.items.') for col in row_data.keys())
+            if has_item_data:
+                # Only require item fields that are marked as required in schema
+                item_required = ['load.items.0.quantity', 'load.items.0.totalWeightLbs']
+                for field in item_required:
+                    if field in self.api_schema and self.api_schema[field].get('required', False):
+                        if field not in required_fields:
+                            required_fields.append(field)
+        
+        return required_fields
+    
+    def _validate_optional_field(self, field_name: str, field_value: Any) -> Tuple[bool, str]:
+        """Validate an optional field if it has a value, return (is_valid, error_message)"""
+        try:
+            # Skip validation for empty/null optional fields
+            if pd.isna(field_value) or str(field_value).strip() == '':
+                return True, ""  # Optional field with no value is always valid
+                
+            # Get field info from schema
+            field_info = self.api_schema.get(field_name, {})
+            
+            # Validate enum fields
+            if field_info.get('enum'):
+                valid_values = [str(val).lower() for val in field_info['enum']]
+                if str(field_value).lower() not in valid_values:
+                    return False, f"Invalid value for {field_name}. Expected one of: {', '.join(field_info['enum'])}"
+            
+            # Validate numeric fields
+            if field_info.get('type') in ['number', 'integer']:
+                try:
+                    float(field_value)
+                except (ValueError, TypeError):
+                    return False, f"Invalid numeric value for {field_name}: {field_value}"
+            
+            # Validate date fields
+            if field_info.get('type') == 'date':
+                try:
+                    pd.to_datetime(field_value)
+                except (ValueError, TypeError, pd.errors.ParserError):
+                    return False, f"Invalid date format for {field_name}: {field_value}"
+                    
+            return True, ""
+            
+        except Exception as e:
+            self.logger.warning(f"Error validating optional field {field_name}: {e}")
+            return True, ""  # Default to valid for optional fields on validation errors
     
     def _get_enum_schema(self) -> Dict[str, List[str]]:
         """Get the enumerated field validation schema"""
@@ -899,85 +970,25 @@ class DataProcessor:
             row_errors = []
             actual_row_index = i + start_row_offset  # Use enumerate index for clean integer
             
-            # Check required fields - Only top-level objects (load, customer, brokerage) and core load fields
-            required_fields = [
-                # Core load fields (always required)
-                'load.loadNumber', 'load.mode', 'load.rateType', 'load.status',
-                
-                # Route fields (at least one stop required)
-                # Note: sequence is auto-generated, not required from user
-                'load.route.0.stopActivity',
-                'load.route.0.address.street1', 'load.route.0.address.city',
-                'load.route.0.address.stateOrProvince', 'load.route.0.address.postalCode',
-                'load.route.0.address.country', 'load.route.0.expectedArrivalWindowStart',
-                'load.route.0.expectedArrivalWindowEnd',
-                
-                # Customer fields (top-level required)
-                'customer.customerId', 'customer.name'
-                
-                # Note: brokerage is required as object but has no required fields
-                # Note: bidCriteria, trackingEvents, carrier are optional blocks
-                # Note: items are only required if item data is present
-            ]
-            
-            # Conditionally add item requirements if we have item data
-            has_item_data = any(col.startswith('load.items.') for col in row.keys())
-            if has_item_data:
-                required_fields.extend([
-                    'load.items.0.quantity', 'load.items.0.totalWeightLbs'
-                ])
+            # SCHEMA-DRIVEN VALIDATION: Get required fields from API schema instead of hard-coded list
+            required_fields = self._get_required_fields_from_schema(row)
             for field in required_fields:
                 if field not in row or pd.isna(row.get(field)) or str(row.get(field, '')).strip() == '':
                     # Create more descriptive error messages
                     field_description = self._get_field_description(field)
                     row_errors.append(f"Missing required field: {field} ({field_description})")
             
-            # Validate data types and formats
-            pickup_date_field = 'load.route.0.expectedArrivalWindowStart'
-            if pickup_date_field in row and not pd.isna(row.get(pickup_date_field)):
-                try:
-                    pd.to_datetime(row[pickup_date_field])
-                except (ValueError, TypeError, pd.errors.ParserError) as date_error:
-                    self.logger.warning(f"Invalid pickup date format for value '{row.get(pickup_date_field)}': {date_error}")
-                    row_errors.append("Invalid pickup date format")
-            
-            delivery_date_field = 'load.route.1.expectedArrivalWindowStart'
-            if delivery_date_field in row and not pd.isna(row.get(delivery_date_field)):
-                try:
-                    pd.to_datetime(row[delivery_date_field])
-                except (ValueError, TypeError, pd.errors.ParserError) as date_error:
-                    self.logger.warning(f"Invalid delivery date format for value '{row.get(delivery_date_field)}': {date_error}")
-                    row_errors.append("Invalid delivery date format")
-            
-            rate_field = 'bidCriteria.targetCostUsd'
-            if rate_field in row and not pd.isna(row.get(rate_field)):
-                rate_value = str(row[rate_field]).strip()
-                if rate_value:  # Only validate if there's actually a value
-                    # Skip validation for obvious enum values that shouldn't be in a rate field
-                    if rate_value.upper() in ['CONTRACT', 'SPOT', 'DEDICATED', 'PROJECT', 'FTL', 'LTL', 'DRAYAGE']:
-                        # This looks like an enum value that was incorrectly mapped to a rate field
-                        # Skip validation to avoid false positives
-                        pass
-                    else:
-                        try:
-                            # Clean the value by removing currency symbols and commas
-                            cleaned_value = rate_value.replace('$', '').replace(',', '').strip()
-                            
-                            # Skip validation if the value is empty after cleaning
-                            if cleaned_value:
-                                float(cleaned_value)
-                        except (ValueError, TypeError):
-                            row_errors.append(f"Invalid rate format: '{rate_value}' cannot be converted to a number")
-            
-            # Validate enum values
-            for field_path, field_value in row.items():
-                field_path_str = str(field_path)  # Convert to string for type safety
-                if not pd.isna(field_value) and str(field_value).strip() != '':
-                    formatted_value = self._format_value(field_path_str, field_value)
-                    if not self._validate_enum_value(field_path_str, formatted_value):
-                        if field_path_str in self.enum_schema:
-                            valid_values = ", ".join(self.enum_schema[field_path_str])
-                            row_errors.append(f"Invalid value '{field_value}' for field '{field_path_str}'. Valid values: {valid_values}")
+            # SCHEMA-DRIVEN OPTIONAL FIELD VALIDATION: Validate all optional fields systematically
+            for field_name, field_value in row.items():
+                # Skip required fields (already validated above)
+                if field_name in required_fields:
+                    continue
+                    
+                # Only validate fields that are in our API schema (mapped fields)
+                if field_name in self.api_schema:
+                    is_valid, error_msg = self._validate_optional_field(field_name, field_value)
+                    if not is_valid and error_msg:
+                        row_errors.append(error_msg)
             
             # Additional validation can be added here as needed
             
