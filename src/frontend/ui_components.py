@@ -2323,7 +2323,7 @@ def _validate_field_mapping(field: str, selected_column: str, df, field_info: di
             return False
         
         # Get sample data from the column
-        sample_data = df[selected_column].dropna().head(10)
+        sample_data = df[selected_column].dropna().head(10).tolist()
         if len(sample_data) == 0:
             # Empty column - valid for optional fields, invalid for required fields
             return not field_info.get('required', False)
