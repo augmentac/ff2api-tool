@@ -41,13 +41,7 @@ from src.frontend.ui_components import (
 
 # Import configuration update functions
 try:
-    import sys
-    import os
-    # Add the additional working directory to path for update functions
-    additional_path = '/Users/augiecon2025/Documents/SEDv2/src/frontend'
-    if additional_path not in sys.path:
-        sys.path.append(additional_path)
-    from mapping_validation import _render_update_configuration_form, _handle_update_configuration
+    from src.frontend.mapping_validation import _render_update_configuration_form, _handle_update_configuration
 except ImportError:
     # Fallback if import fails
     _render_update_configuration_form = None
