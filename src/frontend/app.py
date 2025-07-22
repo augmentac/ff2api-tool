@@ -39,6 +39,20 @@ from src.frontend.ui_components import (
     get_full_api_schema
 )
 
+# Import configuration update functions
+try:
+    import sys
+    import os
+    # Add the additional working directory to path for update functions
+    additional_path = '/Users/augiecon2025/Documents/SEDv2/src/frontend'
+    if additional_path not in sys.path:
+        sys.path.append(additional_path)
+    from mapping_validation import _render_update_configuration_form, _handle_update_configuration
+except ImportError:
+    # Fallback if import fails
+    _render_update_configuration_form = None
+    _handle_update_configuration = None
+
 # Create logs directory if it doesn't exist
 os.makedirs('data/logs', exist_ok=True)
 
@@ -763,6 +777,19 @@ def _render_configuration_selection(db_manager, brokerage_name):
                         del st.session_state[key]
                 
                 st.rerun()
+            
+            # Add configuration update button for selected configuration
+            col1, col2 = st.columns([3, 1])
+            with col2:
+                if st.button("🔧 Update Config", key=f"update_config_{selected_config_display}", 
+                           help="Update API credentials while preserving field mappings"):
+                    st.session_state.show_update_form = True
+                    st.session_state.config_to_update = selected_config
+                    st.rerun()
+                    
+            # Show update form if requested
+            if st.session_state.get('show_update_form') and st.session_state.get('config_to_update'):
+                _render_update_configuration_form(st.session_state.config_to_update, brokerage_name, db_manager)
                 
         elif selected_config_display == "➕ Create New":
             st.session_state.configuration_type = 'new'
