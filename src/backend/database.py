@@ -1027,6 +1027,7 @@ class DatabaseManager:
             configurations.append({
                 'id': config_id,
                 'name': config_name,
+                'brokerage_name': brokerage_name,  # Add brokerage name for validation
                 'created_at': created_at,
                 'updated_at': updated_at,
                 'last_used_at': last_used_at,

@@ -643,11 +643,30 @@ def _render_brokerage_selection(db_manager):
         new_brokerage = selected_brokerage.strip()
         
         if current_brokerage != new_brokerage:
-            # Clear any existing configuration when changing brokerage
+            # SECURITY: Aggressively clear all configuration-related state when changing brokerage
+            import logging
+            logging.info(f"Brokerage changed from '{current_brokerage}' to '{new_brokerage}' - clearing all configuration state")
+            
+            # Clear configuration and credentials
             if 'selected_configuration' in st.session_state:
                 del st.session_state['selected_configuration']
             if 'api_credentials' in st.session_state:
                 del st.session_state['api_credentials']
+            if 'configuration_type' in st.session_state:
+                del st.session_state['configuration_type']
+            if 'auto_select_config' in st.session_state:
+                del st.session_state['auto_select_config']
+                
+            # Clear all workflow state to prevent cross-contamination
+            workflow_keys_to_clear = [
+                'uploaded_df', 'uploaded_file_name', 'file_headers', 'validation_passed', 
+                'header_comparison', 'field_mappings', 'mapping_tab_index', 
+                'processing_results', 'load_results', 'processing_in_progress', 
+                'validation_errors', 'mapping_section_expanded', 'processing_completed'
+            ]
+            for key in workflow_keys_to_clear:
+                if key in st.session_state:
+                    del st.session_state[key]
             
             st.session_state.brokerage_name = new_brokerage
             
@@ -705,12 +724,24 @@ def _render_configuration_selection(db_manager, brokerage_name):
             "Select Configuration",
             options=["-- Choose a configuration --"] + config_options + ["➕ Create New"],
             index=default_index,
-            key="sidebar_config_select",
+            key=f"config_select_{brokerage_name}",  # Brokerage-specific key to prevent cross-contamination
             help="Choose an existing configuration or create a new one"
         )
         
         if selected_config_display and selected_config_display not in ["-- Choose a configuration --", "➕ Create New"]:
             selected_config = next(c for c in configurations if c['name'] == selected_config_display)
+            
+            # SECURITY: Validate configuration belongs to current brokerage
+            config_brokerage = selected_config.get('brokerage_name', '')
+            if config_brokerage != brokerage_name:
+                import logging
+                logging.error(f"SECURITY ALERT: Cross-brokerage configuration access attempt. Config: '{selected_config_display}' belongs to '{config_brokerage}' but current brokerage is '{brokerage_name}'")
+                st.error("⚠️ Security Error: Configuration doesn't belong to selected brokerage. Please refresh the page.")
+                # Clear invalid state
+                if 'selected_configuration' in st.session_state:
+                    del st.session_state['selected_configuration']
+                st.rerun()
+                return
             
             # Update session state if new selection
             current_selection = st.session_state.get('selected_configuration', {}).get('name', '')
@@ -2261,6 +2292,18 @@ def _save_configuration(db_manager, field_mappings, file_headers):
 def process_data_enhanced(df, field_mappings, api_credentials, brokerage_name, data_processor, db_manager, session_id):
     """Enhanced data processing with detailed tracking and error handling"""
     
+    # SECURITY: Final validation that configuration matches current brokerage
+    current_brokerage = st.session_state.get('brokerage_name', '')
+    current_config = st.session_state.get('selected_configuration', {})
+    config_brokerage = current_config.get('brokerage_name', '')
+    
+    if brokerage_name != current_brokerage or config_brokerage != current_brokerage:
+        import logging
+        logging.error(f"SECURITY ALERT: Processing blocked - brokerage mismatch. Processing brokerage: '{brokerage_name}', Current brokerage: '{current_brokerage}', Config brokerage: '{config_brokerage}'")
+        st.error("🚨 **SECURITY ERROR**: Configuration/brokerage mismatch detected. Processing blocked to prevent data being sent to wrong destination.")
+        st.session_state.processing_in_progress = False
+        return None
+    
     # Set processing flag to prevent UI interference
     st.session_state.processing_in_progress = True
     
@@ -2683,6 +2726,17 @@ def validate_api_input(api_key: str, base_url: str) -> tuple[bool, str]:
 
 def process_data(df, field_mappings, api_credentials, customer_name, data_processor, db_manager):
     """Process the data with enhanced progress indicators"""
+    
+    # SECURITY: Validate configuration matches current brokerage (legacy function compatibility)
+    current_brokerage = st.session_state.get('brokerage_name', '')
+    current_config = st.session_state.get('selected_configuration', {})
+    config_brokerage = current_config.get('brokerage_name', '')
+    
+    if customer_name != current_brokerage or config_brokerage != current_brokerage:
+        import logging
+        logging.error(f"SECURITY ALERT: Legacy processing blocked - brokerage mismatch. Processing customer: '{customer_name}', Current brokerage: '{current_brokerage}', Config brokerage: '{config_brokerage}'")
+        st.error("🚨 **SECURITY ERROR**: Configuration/brokerage mismatch detected. Processing blocked.")
+        return None
     
     # Initialize progress tracking
     total_steps = 6
