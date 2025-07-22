@@ -1655,22 +1655,34 @@ def create_learning_enhanced_mapping_interface(df, existing_mappings, data_proce
     # Get the API schema
     api_schema = get_full_api_schema()
     
-    # Initialize mappings - start with existing_mappings as base, then layer session state on top
+    # FIXED: Single source of truth - database first approach
     field_mappings = {}
     
-    # First, load any existing mappings from database as the foundation
+    # Always start with database mappings as the authoritative source
     if existing_mappings:
         field_mappings = existing_mappings.copy()
-    
-    # Then, merge any session state changes on top (preserving user's current session work)
-    if 'field_mappings' in st.session_state and st.session_state.field_mappings:
-        # Only update fields that exist in session state, don't replace entire mapping
-        for field, mapping in st.session_state.field_mappings.items():
-            field_mappings[field] = mapping
-    
-    # If we have existing mappings but no session state, initialize session state with complete mappings
-    if existing_mappings and not st.session_state.get('field_mappings'):
+        # Initialize session state with complete database mappings
         st.session_state.field_mappings = field_mappings.copy()
+        st.session_state.mapping_source = 'database'
+    elif not st.session_state.get('field_mappings'):
+        # No database mappings and no session state - start fresh
+        st.session_state.field_mappings = {}
+        st.session_state.mapping_source = 'new'
+    else:
+        # Use session state only if no database mappings exist (new configuration)
+        field_mappings = st.session_state.field_mappings.copy()
+        st.session_state.mapping_source = 'session'
+    
+    # Validate mapping completeness - don't let incomplete session state override complete database mappings
+    if existing_mappings and st.session_state.get('field_mappings'):
+        db_mapping_count = len([v for v in existing_mappings.values() if v and v != 'Select column...'])
+        session_mapping_count = len([v for v in st.session_state.field_mappings.values() if v and v != 'Select column...'])
+        
+        # If database has more complete mappings, prefer database
+        if db_mapping_count > session_mapping_count:
+            field_mappings = existing_mappings.copy()
+            st.session_state.field_mappings = field_mappings.copy()
+            st.session_state.mapping_source = 'database_preferred'
     
     # Debug information to track mapping initialization
     if existing_mappings:
@@ -2060,15 +2072,32 @@ def create_learning_enhanced_field_mapping_row(field: str, field_info: dict, df,
             label_visibility="collapsed"
         )
         
-        # Update both local mappings and session state immediately
+        # ENHANCED: Update with immediate validation and state synchronization
         if selected_column != "None":
             updated_mappings[field] = selected_column
-            # Update session state immediately to persist across tab switches
-            if 'field_mappings' not in st.session_state:
-                st.session_state.field_mappings = updated_mappings.copy()
+            
+            # Validate the mapping change
+            mapping_valid = _validate_field_mapping(field, selected_column, df, field_info)
+            if mapping_valid:
+                # Update session state immediately to persist across tab switches
+                if 'field_mappings' not in st.session_state:
+                    st.session_state.field_mappings = updated_mappings.copy()
+                else:
+                    # Update only this field, preserving other mappings
+                    st.session_state.field_mappings[field] = selected_column
+                
+                # IMMEDIATE PERSISTENCE: Auto-save to database if configuration exists
+                if (st.session_state.get('selected_configuration') and 
+                    db_manager and brokerage_name):
+                    try:
+                        _immediate_save_field_mapping(field, selected_column, db_manager, brokerage_name)
+                        st.session_state.mapping_auto_saved = True
+                    except Exception as e:
+                        st.session_state.mapping_save_error = f"Auto-save failed: {str(e)}"
             else:
-                # Update only this field, preserving other mappings
-                st.session_state.field_mappings[field] = selected_column
+                # Revert invalid mapping
+                updated_mappings[field] = None
+                st.warning(f"⚠️ Invalid mapping for {field}. Please select a compatible column.")
             
             # Show sample data preview
             if selected_column in df.columns:
@@ -2274,3 +2303,67 @@ def generate_sample_api_preview(df: pd.DataFrame, field_mappings: Dict[str, str]
                 "brokerage": {}
             }
         }
+
+def _validate_field_mapping(field: str, selected_column: str, df, field_info: dict) -> bool:
+    """Validate if a field mapping is compatible with the field requirements"""
+    try:
+        if selected_column not in df.columns:
+            return False
+            
+        # Check for enum values
+        if field_info.get('enum'):
+            # Sample column data and check if values match enum options
+            column_values = df[selected_column].dropna().unique()[:10]  # Check first 10 unique values
+            enum_values = [str(val).lower() for val in field_info['enum']]
+            
+            # Allow if at least some values match the enum
+            matches = sum(1 for val in column_values if str(val).lower() in enum_values)
+            if matches == 0 and len(column_values) > 0:
+                return False
+        
+        # Check for required numeric fields
+        if field_info.get('type') in ['number', 'integer']:
+            try:
+                # Try to convert a sample of the column to numeric
+                sample_data = df[selected_column].dropna().head(5)
+                pd.to_numeric(sample_data, errors='raise')
+            except (ValueError, TypeError):
+                return False
+        
+        return True
+    except Exception:
+        return True  # Default to allowing the mapping if validation fails
+
+def _immediate_save_field_mapping(field: str, selected_column: str, db_manager, brokerage_name: str):
+    """Immediately save a single field mapping to the database"""
+    try:
+        from datetime import datetime
+        config = st.session_state.get('selected_configuration')
+        if not config:
+            return
+            
+        # Get current field mappings from session state
+        current_mappings = st.session_state.get('field_mappings', {}).copy()
+        current_mappings[field] = selected_column
+        
+        # Get file headers if available
+        file_headers = st.session_state.get('file_headers')
+        
+        # Save the updated configuration to database
+        db_manager.save_brokerage_configuration(
+            brokerage_name=brokerage_name,
+            configuration_name=config['name'],
+            field_mappings=current_mappings,
+            api_credentials=config['api_credentials'],
+            file_headers=file_headers,
+            description=config.get('description', ''),
+            auth_type=config.get('auth_type', 'api_key'),
+            bearer_token=config.get('bearer_token')
+        )
+        
+        # Update the session state configuration to reflect the save
+        st.session_state.selected_configuration['field_mappings'] = current_mappings
+        st.session_state.selected_configuration['updated_at'] = datetime.now().isoformat()
+        
+    except Exception as e:
+        raise e

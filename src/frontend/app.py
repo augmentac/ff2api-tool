@@ -2418,9 +2418,14 @@ def process_data_enhanced(df, field_mappings, api_credentials, brokerage_name, d
         # Step 5: Send to API with enhanced progress
         update_progress("Sending to API", 5, f"Submitting {len(api_payloads)} loads to the API...")
         
-        # Enhanced API submission with progress tracking
+        # Enhanced API submission with progress tracking and real-time error stream
         api_progress_bar = st.progress(0)
         api_status = st.empty()
+        
+        # Real-time error stream
+        error_stream_container = st.container()
+        error_stream = error_stream_container.empty()
+        live_errors = []
         
         results = []
         successful_count = 0
@@ -2460,12 +2465,29 @@ def process_data_enhanced(df, field_mappings, api_credentials, brokerage_name, d
             
             results.append(result)
             
-            # Update counters
+            # Update counters and real-time error stream
             if result.get('success', False):
                 successful_count += 1
             else:
                 failed_count += 1
-                # Add detailed error for failed records
+                
+                # Add to real-time error stream
+                error_detail = {
+                    'row': i + 1,
+                    'load_number': result.get('load_number', f"Load-{i+1}"),
+                    'error': result.get('error', 'Unknown API error'),
+                    'timestamp': datetime.now().strftime('%H:%M:%S')
+                }
+                live_errors.append(error_detail)
+                
+                # Update live error display (show last 5 errors)
+                if live_errors:
+                    error_display = "🔴 **Recent Errors:**\n"
+                    for err in live_errors[-5:]:  # Show last 5 errors
+                        error_display += f"• Row {err['row']} ({err['load_number']}) at {err['timestamp']}: {err['error'][:100]}{'...' if len(err['error']) > 100 else ''}\n"
+                    error_stream.error(error_display)
+                
+                # Add detailed error for database storage
                 detailed_errors.append({
                     'row_number': i + 1,
                     'field_name': 'api_submission',
@@ -2660,9 +2682,61 @@ def process_data_enhanced(df, field_mappings, api_credentials, brokerage_name, d
                 )
         
     except Exception as e:
-        # Enhanced error handling
-        st.error(f"❌ Processing failed: {str(e)}")
-        logger.error(f"Processing error: {str(e)}")
+        # Enhanced error handling with full details
+        import traceback
+        error_details = {
+            'error_type': type(e).__name__,
+            'error_message': str(e),
+            'full_traceback': traceback.format_exc(),
+            'timestamp': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
+            'brokerage': brokerage_name,
+            'session_id': session_id,
+            'record_count': len(df),
+            'field_count': len(field_mappings)
+        }
+        
+        # Store error details in session state for persistence
+        st.session_state.last_processing_error = error_details
+        
+        # Display user-friendly error with expandable details
+        st.error(f"❌ **Processing Failed**: {error_details['error_type']}")
+        st.error(f"**Message**: {error_details['error_message']}")
+        
+        # Expandable technical details
+        with st.expander("🔧 **Technical Details & Debugging Info**", expanded=False):
+            st.text_area(
+                "Full Error Traceback",
+                error_details['full_traceback'],
+                height=200,
+                help="Copy this information when reporting issues"
+            )
+            
+            col1, col2 = st.columns(2)
+            with col1:
+                st.json({
+                    "Error Type": error_details['error_type'],
+                    "Timestamp": error_details['timestamp'],
+                    "Session ID": error_details['session_id'],
+                    "Brokerage": error_details['brokerage']
+                })
+            with col2:
+                st.json({
+                    "Record Count": error_details['record_count'],
+                    "Field Count": error_details['field_count'],
+                    "Configuration": st.session_state.get('selected_configuration', {}).get('name', 'Unknown')
+                })
+                
+            # Error export functionality
+            error_report = json.dumps(error_details, indent=2)
+            st.download_button(
+                "📥 Download Error Report",
+                data=error_report,
+                file_name=f"error_report_{session_id}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json",
+                mime="application/json",
+                help="Download detailed error report for debugging"
+            )
+        
+        logger.error(f"Processing error details: {json.dumps(error_details, indent=2)}")
         
         # Clear processing flag on error to prevent UI state issues
         st.session_state.processing_in_progress = False
