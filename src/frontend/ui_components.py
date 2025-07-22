@@ -54,9 +54,21 @@ def get_full_api_schema():
         'customer.customerId': {'type': 'string', 'required': True, 'description': 'Customer ID'},
         'customer.name': {'type': 'string', 'required': True, 'description': 'Customer Name'},
         
-        # Optional fields
+        # Load Items (complete API specification)
         'load.items.0.quantity': {'type': 'number', 'required': False, 'description': 'Item Quantity'},
+        'load.items.0.packageType': {'type': 'string', 'required': False, 'description': 'Package Type', 'enum': ['PALLET', 'PIECE', 'CARTON', 'TOTE', 'SKID']},
+        'load.items.0.description': {'type': 'string', 'required': False, 'description': 'Item Description'},
         'load.items.0.totalWeightLbs': {'type': 'number', 'required': False, 'description': 'Total Weight'},
+        'load.items.0.lengthInches': {'type': 'number', 'required': False, 'description': 'Length in Inches'},
+        'load.items.0.widthInches': {'type': 'number', 'required': False, 'description': 'Width in Inches'},
+        'load.items.0.heightInches': {'type': 'number', 'required': False, 'description': 'Height in Inches'},
+        'load.items.0.freightClass': {'type': 'string', 'required': False, 'description': 'Freight Class', 'enum': ['50', '55', '60', '65', '70']},
+        'load.items.0.nmfc': {'type': 'string', 'required': False, 'description': 'NMFC Code'},
+        'load.items.0.density': {'type': 'number', 'required': False, 'description': 'Density'},
+        'load.items.0.pickupSequence': {'type': 'number', 'required': False, 'description': 'Pickup Sequence'},
+        'load.items.0.deliverySequence': {'type': 'number', 'required': False, 'description': 'Delivery Sequence'},
+        
+        # Equipment Information
         'load.equipment.equipmentType': {'type': 'string', 'required': False, 'description': 'Equipment Type', 'enum': ['DRY_VAN', 'FLATBED', 'REEFER', 'CONTAINER', 'OTHER']},
         
         # Bid Criteria
