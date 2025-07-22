@@ -208,59 +208,12 @@ def _handle_update_configuration(config_to_update, brokerage_name, db_manager):
             st.session_state.config_update_error = f"❌ Failed to test connection: {str(e)}"
 
 def _validate_field_mapping(field: str, selected_column: str, df, field_info: dict) -> bool:
-    """Validate if a field mapping is compatible with the field requirements"""
+    """Simplified validation: Allow any CSV header to map to any API field"""
     try:
-        if selected_column not in df.columns:
-            return False
-        
-        # Get sample data from the column
-        sample_data = df[selected_column].dropna().head(10)
-        if len(sample_data) == 0:
-            # Empty column - valid for optional fields, invalid for required fields
-            return not field_info.get('required', False)
-            
-        # Check for enum values
-        if field_info.get('enum'):
-            # Sample column data and check if values match enum options
-            column_values = sample_data.unique()[:10]  # Check first 10 unique values
-            enum_values = [str(val).lower() for val in field_info['enum']]
-            
-            # For optional fields, allow if ANY values match or if column is mostly empty
-            # For required fields, require MOST values to match
-            matches = sum(1 for val in column_values if str(val).lower() in enum_values)
-            if field_info.get('required', False):
-                # Required field: require majority of values to match
-                if matches == 0 and len(column_values) > 0:
-                    return False
-            else:
-                # Optional field: more lenient validation - allow if some values match or column is sparse
-                non_empty_ratio = len(sample_data) / len(df)
-                if matches == 0 and len(column_values) > 0 and non_empty_ratio > 0.5:
-                    return False  # Many non-matching values in optional field
-        
-        # Check for numeric fields
-        if field_info.get('type') in ['number', 'integer']:
-            try:
-                # Try to convert a sample of the column to numeric
-                numeric_sample = pd.to_numeric(sample_data, errors='coerce')
-                valid_numeric_count = numeric_sample.notna().sum()
-                
-                if field_info.get('required', False):
-                    # Required numeric field: require most values to be numeric
-                    if valid_numeric_count == 0:
-                        return False
-                else:
-                    # Optional numeric field: allow if reasonably sparse or mostly numeric when present
-                    if valid_numeric_count == 0 and len(sample_data) > 5:
-                        return False  # Too many non-numeric values in optional numeric field
-                        
-            except (ValueError, TypeError):
-                return not field_info.get('required', False)  # Fail for required, pass for optional
-        
-        return True
+        # Only check if the selected column exists in the CSV
+        return selected_column in df.columns
     except Exception:
-        # Default to allowing optional field mappings, rejecting required field mappings on error
-        return not field_info.get('required', False)
+        return False
 
 def _immediate_save_field_mapping(field: str, selected_column: str, db_manager, brokerage_name: str):
     """Immediately save a single field mapping to the database"""
