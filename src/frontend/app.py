@@ -773,13 +773,12 @@ def _render_configuration_selection(db_manager, brokerage_name):
                 st.rerun()
             
             # Add configuration update button for selected configuration
-            col1, col2 = st.columns([3, 1])
-            with col2:
-                if st.button("🔧 Update Config", key=f"update_config_{selected_config_display}", 
-                           help="Update API credentials while preserving field mappings"):
-                    st.session_state.show_update_form = True
-                    st.session_state.config_to_update = selected_config
-                    st.rerun()
+            if st.button("🔧 Update Config", key=f"update_config_{selected_config_display}", 
+                       help="Update API credentials while preserving field mappings", 
+                       use_container_width=True):
+                st.session_state.show_update_form = True
+                st.session_state.config_to_update = selected_config
+                st.rerun()
                     
             # Show update form if requested
             if st.session_state.get('show_update_form') and st.session_state.get('config_to_update'):

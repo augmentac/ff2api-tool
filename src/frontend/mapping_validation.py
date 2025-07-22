@@ -12,7 +12,6 @@ def _render_update_configuration_form(config_to_update, brokerage_name, db_manag
     # Initialize form state if not exists
     if 'update_form_state' not in st.session_state:
         st.session_state.update_form_state = {
-            'config_description': config_to_update.get('description', ''),
             'api_base_url': config_to_update['api_credentials'].get('base_url', 'https://api.prod.goaugment.com'),
             'api_key': config_to_update['api_credentials'].get('api_key', ''),
             'auth_type': config_to_update.get('auth_type', 'api_key'),
@@ -23,13 +22,6 @@ def _render_update_configuration_form(config_to_update, brokerage_name, db_manag
     
     with st.form("update_configuration_form", clear_on_submit=False):
         st.markdown("**Update Configuration Details**")
-        
-        # Configuration Description
-        form_state['config_description'] = st.text_area(
-            "Description",
-            value=form_state['config_description'],
-            help="Optional description for this configuration"
-        )
         
         # API Base URL
         form_state['api_base_url'] = st.text_input(
@@ -98,7 +90,6 @@ def _handle_update_configuration(config_to_update, brokerage_name, db_manager):
     """Handle updating existing configuration while preserving field mappings"""
     form_state = st.session_state.update_form_state
     
-    config_description = form_state['config_description'].strip()
     api_base_url = form_state['api_base_url'].strip()
     auth_type = form_state['auth_type']
     api_key = form_state['api_key'].strip()
@@ -155,7 +146,7 @@ def _handle_update_configuration(config_to_update, brokerage_name, db_manager):
                         field_mappings=existing_mappings,  # Preserve existing mappings
                         api_credentials=api_credentials,
                         file_headers=existing_headers,     # Preserve existing headers
-                        description=config_description,
+                        description=config_to_update.get('description', ''),
                         auth_type=auth_type,
                         bearer_token=save_bearer_token
                     )
@@ -182,7 +173,7 @@ def _handle_update_configuration(config_to_update, brokerage_name, db_manager):
                         'name': config_to_update['name'],
                         'brokerage_name': brokerage_name,
                         'configuration_name': config_to_update['name'],
-                        'description': config_description,
+                        'description': config_to_update.get('description', ''),
                         'api_credentials': api_credentials,
                         'auth_type': auth_type,
                         'bearer_token': save_bearer_token,
