@@ -26,20 +26,119 @@ class DataProcessor:
         """Get required fields from the API schema, with conditional logic"""
         required_fields = []
         
-        # Get all fields marked as required in the API schema
+        # Get all fields marked as required=True in the API schema
         for field_name, field_info in self.api_schema.items():
-            if field_info.get('required', False):
+            if field_info.get('required') is True:
                 required_fields.append(field_name)
         
         # Add conditional requirements based on data presence
         if row_data is not None and not row_data.empty:
-            # If any item fields are present, require core item fields
+            # Check for bidCriteria conditionally required fields
+            has_bid_criteria_data = any(col.startswith('bidCriteria.') for col in row_data.keys())
+            if has_bid_criteria_data:
+                bid_conditional_fields = [
+                    'bidCriteria.equipment', 'bidCriteria.totalWeightLbs', 
+                    'bidCriteria.targetCostUsd', 'bidCriteria.maxBidAmountUsd'
+                ]
+                for field in bid_conditional_fields:
+                    if field in self.api_schema and self.api_schema[field].get('required') == 'conditional':
+                        if field not in required_fields:
+                            required_fields.append(field)
+            
+            # Check for bidCriteria.dimensions conditionally required fields
+            has_dimensions_data = any(col.startswith('bidCriteria.dimensions.') for col in row_data.keys())
+            if has_dimensions_data:
+                dimension_fields = [
+                    'bidCriteria.dimensions.heightInches', 'bidCriteria.dimensions.lengthInches', 
+                    'bidCriteria.dimensions.widthInches'
+                ]
+                for field in dimension_fields:
+                    if field in self.api_schema and self.api_schema[field].get('required') == 'conditional':
+                        if field not in required_fields:
+                            required_fields.append(field)
+            
+            # Check for load.items conditionally required fields
             has_item_data = any(col.startswith('load.items.') for col in row_data.keys())
             if has_item_data:
-                # Only require item fields that are marked as required in schema
                 item_required = ['load.items.0.quantity', 'load.items.0.totalWeightLbs']
                 for field in item_required:
-                    if field in self.api_schema and self.api_schema[field].get('required', False):
+                    if field in self.api_schema and self.api_schema[field].get('required') == 'conditional':
+                        if field not in required_fields:
+                            required_fields.append(field)
+            
+            # Check for load.equipment conditionally required fields
+            has_equipment_data = any(col.startswith('load.equipment.') for col in row_data.keys())
+            if has_equipment_data:
+                if 'load.equipment.equipmentType' in self.api_schema and self.api_schema['load.equipment.equipmentType'].get('required') == 'conditional':
+                    if 'load.equipment.equipmentType' not in required_fields:
+                        required_fields.append('load.equipment.equipmentType')
+            
+            # Check for load.referenceNumbers conditionally required fields
+            has_ref_data = any(col.startswith('load.referenceNumbers.') for col in row_data.keys())
+            if has_ref_data:
+                ref_fields = ['load.referenceNumbers.0.name', 'load.referenceNumbers.0.value']
+                for field in ref_fields:
+                    if field in self.api_schema and self.api_schema[field].get('required') == 'conditional':
+                        if field not in required_fields:
+                            required_fields.append(field)
+            
+            # Check for carrier conditionally required fields
+            has_carrier_data = any(col.startswith('carrier.') for col in row_data.keys())
+            if has_carrier_data:
+                carrier_conditional = ['carrier.name', 'carrier.dotNumber']
+                for field in carrier_conditional:
+                    if field in self.api_schema and self.api_schema[field].get('required') == 'conditional':
+                        if field not in required_fields:
+                            required_fields.append(field)
+                
+                # Check for carrier.address conditionally required fields
+                has_carrier_address = any(col.startswith('carrier.address.') for col in row_data.keys())
+                if has_carrier_address:
+                    carrier_address_fields = [
+                        'carrier.address.street1', 'carrier.address.city', 'carrier.address.stateOrProvince',
+                        'carrier.address.postalCode', 'carrier.address.country'
+                    ]
+                    for field in carrier_address_fields:
+                        if field in self.api_schema and self.api_schema[field].get('required') == 'conditional':
+                            if field not in required_fields:
+                                required_fields.append(field)
+                
+                # Check for carrier.contacts conditionally required fields
+                has_carrier_contacts = any(col.startswith('carrier.contacts.') for col in row_data.keys())
+                if has_carrier_contacts:
+                    if 'carrier.contacts.0.role' in self.api_schema and self.api_schema['carrier.contacts.0.role'].get('required') == 'conditional':
+                        if 'carrier.contacts.0.role' not in required_fields:
+                            required_fields.append('carrier.contacts.0.role')
+                
+                # Check for carrier.drivers conditionally required fields
+                has_carrier_drivers = any(col.startswith('carrier.drivers.') for col in row_data.keys())
+                if has_carrier_drivers:
+                    if 'carrier.drivers.0.phone' in self.api_schema and self.api_schema['carrier.drivers.0.phone'].get('required') == 'conditional':
+                        if 'carrier.drivers.0.phone' not in required_fields:
+                            required_fields.append('carrier.drivers.0.phone')
+            
+            # Check for brokerage.contacts conditionally required fields
+            has_brokerage_contacts = any(col.startswith('brokerage.contacts.') for col in row_data.keys())
+            if has_brokerage_contacts:
+                if 'brokerage.contacts.0.role' in self.api_schema and self.api_schema['brokerage.contacts.0.role'].get('required') == 'conditional':
+                    if 'brokerage.contacts.0.role' not in required_fields:
+                        required_fields.append('brokerage.contacts.0.role')
+            
+            # Check for tracking events conditionally required fields
+            has_tracking_data = any(col.startswith('load.trackingEvents.') for col in row_data.keys())
+            if has_tracking_data:
+                tracking_required = ['load.trackingEvents.0.eventType', 'load.trackingEvents.0.eventSource', 'load.trackingEvents.0.eventUtc']
+                for field in tracking_required:
+                    if field in self.api_schema and self.api_schema[field].get('required') == 'conditional':
+                        if field not in required_fields:
+                            required_fields.append(field)
+            
+            # Check for bidCriteria.flexAttributes conditionally required fields
+            has_flex_attributes = any(col.startswith('bidCriteria.flexAttributes.') for col in row_data.keys())
+            if has_flex_attributes:
+                flex_fields = ['bidCriteria.flexAttributes.0.name', 'bidCriteria.flexAttributes.0.value']
+                for field in flex_fields:
+                    if field in self.api_schema and self.api_schema[field].get('required') == 'conditional':
                         if field not in required_fields:
                             required_fields.append(field)
         
