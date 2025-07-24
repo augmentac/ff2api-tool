@@ -933,18 +933,44 @@ def create_enhanced_mapping_interface(df, existing_mappings, data_processor):
     with tab2:
         st.markdown("### Optional Fields (Enhance your data)")
         
-        # Group optional fields by category for better UX
+        # Group optional fields by category for better UX - Enhanced keyword patterns
+        # Create helper functions for better field categorization
+        def is_pricing_bid_field(f):
+            return ('bid' in f.lower() or 'cost' in f.lower() or 'rate' in f.lower() or 
+                   'pricing' in f.lower() or 'target' in f.lower() or 'max' in f.lower() or
+                   'bidcriteria' in f.lower() or 'dimensions' in f.lower() or 'flexattributes' in f.lower())
+        
+        def is_load_info_field(f):
+            return ('items' in f or 'equipment' in f or 'weight' in f or 
+                   'package' in f.lower() or 'quantity' in f.lower() or 'freight' in f.lower() or
+                   'nmfc' in f.lower() or 'density' in f.lower() or 'sequence' in f.lower() or
+                   'reference' in f.lower() or 'tracking' in f.lower())
+        
+        def is_location_field(f):
+            return ('address' in f or 'route' in f or 'location' in f.lower() or 
+                   'street' in f.lower() or 'city' in f.lower() or 'state' in f.lower() or
+                   'postal' in f.lower() or 'country' in f.lower() or 'arrival' in f.lower() or
+                   'completion' in f.lower() or 'latitude' in f.lower() or 'longitude' in f.lower())
+        
+        def is_contact_carrier_field(f):
+            return ('contact' in f or 'carrier' in f or 'driver' in f or 
+                   'brokerage' in f or 'customer' in f or 'phone' in f.lower() or
+                   'email' in f.lower() or 'role' in f.lower() or 'name' in f.lower() or
+                   'dot' in f.lower() or 'mc' in f.lower() or 'scac' in f.lower())
+        
+        # Categorize with priority order to prevent duplicates
+        pricing_fields = [f for f in optional_fields.keys() if is_pricing_bid_field(f)]
+        load_fields = [f for f in optional_fields.keys() if not is_pricing_bid_field(f) and is_load_info_field(f)]
+        location_fields = [f for f in optional_fields.keys() if not is_pricing_bid_field(f) and not is_load_info_field(f) and is_location_field(f)]
+        contact_fields = [f for f in optional_fields.keys() if not is_pricing_bid_field(f) and not is_load_info_field(f) and not is_location_field(f) and is_contact_carrier_field(f)]
+        other_fields = [f for f in optional_fields.keys() if not is_pricing_bid_field(f) and not is_load_info_field(f) and not is_location_field(f) and not is_contact_carrier_field(f)]
+        
         categories = {
-            "📍 Location Details": [f for f in optional_fields.keys() if 'address' in f or 'route' in f],
-            "📦 Load Information": [f for f in optional_fields.keys() if 'items' in f or 'equipment' in f or 'weight' in f],
-            "💰 Pricing & Bids": [f for f in optional_fields.keys() if 'bid' in f.lower() or 'cost' in f.lower() or 'rate' in f.lower()],
-            "👥 Contacts & Carriers": [f for f in optional_fields.keys() if 'contact' in f or 'carrier' in f or 'driver' in f],
-            "📋 Other Fields": [f for f in optional_fields.keys() if f not in [item for sublist in [
-                [f for f in optional_fields.keys() if 'address' in f or 'route' in f],
-                [f for f in optional_fields.keys() if 'items' in f or 'equipment' in f or 'weight' in f],
-                [f for f in optional_fields.keys() if 'bid' in f.lower() or 'cost' in f.lower() or 'rate' in f.lower()],
-                [f for f in optional_fields.keys() if 'contact' in f or 'carrier' in f or 'driver' in f]
-            ] for item in sublist]]
+            "💰 Pricing & Bids": pricing_fields,
+            "📦 Load Information": load_fields,
+            "📍 Location Details": location_fields,
+            "👥 Contacts & Carriers": contact_fields,
+            "📋 Other Fields": other_fields
         }
         
         for category_name, category_fields in categories.items():
@@ -1467,17 +1493,28 @@ def create_enhanced_mapping_with_validation(df, existing_configuration, data_pro
             "📋 Other Fields": []
         }
         
-        # Categorize fields (priority order)
+        # Categorize fields (priority order) - Enhanced keyword patterns to catch all new fields
         for field in optional_fields.keys():
             if field in processed_fields:
                 continue
-            if 'bid' in field.lower() or 'cost' in field.lower() or 'rate' in field.lower():
+            if ('bid' in field.lower() or 'cost' in field.lower() or 'rate' in field.lower() or 
+                'pricing' in field.lower() or 'target' in field.lower() or 'max' in field.lower() or
+                'bidcriteria' in field.lower() or 'dimensions' in field.lower() or 'flexattributes' in field.lower()):
                 categories["💰 Pricing & Bids"].append(field)
-            elif 'items' in field or 'equipment' in field or 'weight' in field:
+            elif ('items' in field or 'equipment' in field or 'weight' in field or 
+                  'package' in field.lower() or 'quantity' in field.lower() or 'freight' in field.lower() or
+                  'nmfc' in field.lower() or 'density' in field.lower() or 'sequence' in field.lower() or
+                  'reference' in field.lower() or 'tracking' in field.lower()):
                 categories["📦 Load Information"].append(field)
-            elif 'address' in field or 'route' in field:
+            elif ('address' in field or 'route' in field or 'location' in field.lower() or 
+                  'street' in field.lower() or 'city' in field.lower() or 'state' in field.lower() or
+                  'postal' in field.lower() or 'country' in field.lower() or 'arrival' in field.lower() or
+                  'completion' in field.lower() or 'latitude' in field.lower() or 'longitude' in field.lower()):
                 categories["📍 Location Details"].append(field)
-            elif 'contact' in field or 'carrier' in field or 'driver' in field:
+            elif ('contact' in field or 'carrier' in field or 'driver' in field or 
+                  'brokerage' in field or 'customer' in field or 'phone' in field.lower() or
+                  'email' in field.lower() or 'role' in field.lower() or 'name' in field.lower() or
+                  'dot' in field.lower() or 'mc' in field.lower() or 'scac' in field.lower()):
                 categories["👥 Contacts & Carriers"].append(field)
             else:
                 categories["📋 Other Fields"].append(field)
@@ -1875,13 +1912,25 @@ def create_learning_enhanced_mapping_interface(df, existing_mappings, data_proce
             if field in processed_fields:
                 continue
             # Priority order: Pricing & Bids > Load Information > Location > Contacts > Other
-            if 'bid' in field.lower() or 'cost' in field.lower() or 'rate' in field.lower():
+            # Enhanced keyword patterns to catch all new fields
+            if ('bid' in field.lower() or 'cost' in field.lower() or 'rate' in field.lower() or 
+                'pricing' in field.lower() or 'target' in field.lower() or 'max' in field.lower() or
+                'bidcriteria' in field.lower() or 'dimensions' in field.lower() or 'flexattributes' in field.lower()):
                 categories["💰 Pricing & Bids"].append(field)
-            elif 'items' in field or 'equipment' in field or 'weight' in field:
+            elif ('items' in field or 'equipment' in field or 'weight' in field or 
+                  'package' in field.lower() or 'quantity' in field.lower() or 'freight' in field.lower() or
+                  'nmfc' in field.lower() or 'density' in field.lower() or 'sequence' in field.lower() or
+                  'reference' in field.lower() or 'tracking' in field.lower()):
                 categories["📦 Load Information"].append(field)
-            elif 'address' in field or 'route' in field:
+            elif ('address' in field or 'route' in field or 'location' in field.lower() or 
+                  'street' in field.lower() or 'city' in field.lower() or 'state' in field.lower() or
+                  'postal' in field.lower() or 'country' in field.lower() or 'arrival' in field.lower() or
+                  'completion' in field.lower() or 'latitude' in field.lower() or 'longitude' in field.lower()):
                 categories["📍 Location Details"].append(field)
-            elif 'contact' in field or 'carrier' in field or 'driver' in field:
+            elif ('contact' in field or 'carrier' in field or 'driver' in field or 
+                  'brokerage' in field or 'customer' in field or 'phone' in field.lower() or
+                  'email' in field.lower() or 'role' in field.lower() or 'name' in field.lower() or
+                  'dot' in field.lower() or 'mc' in field.lower() or 'scac' in field.lower()):
                 categories["👥 Contacts & Carriers"].append(field)
             else:
                 categories["📋 Other Fields"].append(field)
