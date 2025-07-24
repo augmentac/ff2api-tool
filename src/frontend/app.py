@@ -328,10 +328,10 @@ def _render_configuration_status(config):
     total_required = 0
     
     if file_uploaded:
-        from src.frontend.ui_components import get_full_api_schema
+        from src.frontend.ui_components import get_full_api_schema, get_dynamic_field_requirements
         api_schema = get_full_api_schema()
-        required_fields = {k: v for k, v in api_schema.items() if v.get('required', False)}
         current_mappings = st.session_state.get('field_mappings', field_mappings)
+        required_fields = get_dynamic_field_requirements(api_schema, current_mappings)
         mapped_required = len([f for f in required_fields.keys() if f in current_mappings and current_mappings[f] and current_mappings[f] != 'Select column...'])
         total_required = len(required_fields)
         mapping_complete = mapped_required >= total_required and total_required > 0
@@ -877,10 +877,10 @@ def _render_consolidated_status():
     total_required = 0
     
     if file_uploaded:
-        from src.frontend.ui_components import get_full_api_schema
+        from src.frontend.ui_components import get_full_api_schema, get_dynamic_field_requirements
         api_schema = get_full_api_schema()
-        required_fields = {k: v for k, v in api_schema.items() if v.get('required', False)}
         current_mappings = st.session_state.get('field_mappings', field_mappings)
+        required_fields = get_dynamic_field_requirements(api_schema, current_mappings)
         mapped_required = len([f for f in required_fields.keys() if f in current_mappings and current_mappings[f] and current_mappings[f] != 'Select column...'])
         total_required = len(required_fields)
         mapping_complete = mapped_required >= total_required and total_required > 0
@@ -1857,7 +1857,9 @@ def _render_current_file_info():
                             with col1:
                                 st.metric("Mapped Fields", len(api_preview_data['mapped_fields']))
                             with col2:
-                                required_fields = [f for f in api_preview_data['mapped_fields'] if get_full_api_schema().get(f, {}).get('required', False)]
+                                from src.frontend.ui_components import get_dynamic_field_requirements
+                                dynamic_required_fields = get_dynamic_field_requirements(get_full_api_schema(), field_mappings)
+                                required_fields = [f for f in api_preview_data['mapped_fields'] if f in dynamic_required_fields]
                                 st.metric("Required Fields", len(required_fields))
                             with col3:
                                 optional_fields = len(api_preview_data['mapped_fields']) - len(required_fields)
@@ -2039,7 +2041,7 @@ def _render_smart_mapping_section(db_manager, data_processor):
         
         # Progress indicator
         api_schema = get_full_api_schema()
-        required_fields = {k: v for k, v in api_schema.items() if v.get('required', False)}
+        required_fields = get_dynamic_field_requirements(api_schema, field_mappings)
         mapped_required = len([f for f in required_fields.keys() if f in field_mappings])
         total_required = len(required_fields)
         
