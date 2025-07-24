@@ -134,6 +134,78 @@ def get_full_api_schema():
         'load.trackingEvents.0.notes': {'type': 'string', 'required': False, 'description': 'Event Notes'},
     }
 
+def get_dynamic_field_requirements(api_schema, current_mappings):
+    """
+    Determine which fields should be required based on current mappings.
+    Core required fields are always required.
+    Conditional fields become required when related fields are mapped.
+    """
+    # Always required fields
+    always_required = {k: v for k, v in api_schema.items() if v.get('required') is True}
+    
+    # Start with always required fields
+    dynamic_required = always_required.copy()
+    
+    # Check if any fields from conditional groups are mapped
+    mapped_fields = set(current_mappings.keys())
+    
+    # Conditional requirement groups
+    conditional_groups = {
+        'bidCriteria': [
+            'bidCriteria.equipment', 'bidCriteria.totalWeightLbs', 'bidCriteria.targetCostUsd',
+            'bidCriteria.maxBidAmountUsd', 'bidCriteria.dimensions.heightInches',
+            'bidCriteria.dimensions.lengthInches', 'bidCriteria.dimensions.widthInches',
+            'bidCriteria.flexAttributes.0.name', 'bidCriteria.flexAttributes.0.value'
+        ],
+        'carrier': [
+            'carrier.name', 'carrier.dotNumber', 'carrier.address.street1',
+            'carrier.address.city', 'carrier.address.stateOrProvince',
+            'carrier.address.postalCode', 'carrier.address.country',
+            'carrier.contacts.0.role', 'carrier.drivers.0.phone'
+        ],
+        'items': [
+            'load.items.0.quantity', 'load.items.0.totalWeightLbs'
+        ],
+        'equipment': [
+            'load.equipment.equipmentType'
+        ],
+        'referenceNumbers': [
+            'load.referenceNumbers.0.name', 'load.referenceNumbers.0.value'
+        ],
+        'trackingEvents': [
+            'load.trackingEvents.0.eventType', 'load.trackingEvents.0.eventSource',
+            'load.trackingEvents.0.eventUtc'
+        ],
+        'brokerageContacts': [
+            'brokerage.contacts.0.role'
+        ]
+    }
+    
+    # For each conditional group, check if any field is mapped
+    for group_name, group_fields in conditional_groups.items():
+        group_has_mapping = any(field in mapped_fields for field in group_fields)
+        
+        if group_has_mapping:
+            # Add all conditional fields from this group as required
+            for field in group_fields:
+                if field in api_schema and api_schema[field].get('required') == 'conditional':
+                    dynamic_required[field] = api_schema[field]
+    
+    return dynamic_required
+
+def update_field_mapping_and_requirements(field, selected_column, current_mappings, api_schema):
+    """Update field mapping and recalculate requirements based on new mapping"""
+    # Update the mapping
+    if selected_column and selected_column != "-- Select Column --":
+        current_mappings[field] = selected_column
+    elif field in current_mappings:
+        del current_mappings[field]
+    
+    # Recalculate requirements based on updated mappings
+    updated_required_fields = get_dynamic_field_requirements(api_schema, current_mappings)
+    
+    return current_mappings, updated_required_fields
+
 def load_custom_css():
     """Load custom CSS styles with fallback mechanisms"""
     try:
@@ -876,15 +948,15 @@ def create_enhanced_mapping_interface(df, existing_mappings, data_processor):
     # Get the API schema
     api_schema = get_full_api_schema()
     
-    # Separate required and optional fields
-    required_fields = {k: v for k, v in api_schema.items() if v.get('required', False)}
-    optional_fields = {k: v for k, v in api_schema.items() if not v.get('required', False)}
-    
     # Initialize mappings
     if existing_mappings:
         field_mappings = existing_mappings.copy()
     else:
         field_mappings = {}
+    
+    # Get dynamic requirements based on current mappings
+    required_fields = get_dynamic_field_requirements(api_schema, field_mappings)
+    optional_fields = {k: v for k, v in api_schema.items() if k not in required_fields}
     
     # Progress indicator for mapping completeness
     total_required = len(required_fields)
@@ -912,11 +984,32 @@ def create_enhanced_mapping_interface(df, existing_mappings, data_processor):
                 if suggested_mappings:
                     st.success(f"✨ Generated {len(suggested_mappings)} smart mapping suggestions!")
                     field_mappings.update(suggested_mappings)
+                    # Recalculate requirements after adding suggestions
+                    required_fields = get_dynamic_field_requirements(api_schema, field_mappings)
+                    optional_fields = {k: v for k, v in api_schema.items() if k not in required_fields}
                 else:
                     st.info("💡 No automatic suggestions found. Please map fields manually below.")
             except Exception as e:
                 st.warning(f"⚠️ Could not generate smart mappings: {str(e)}")
     
+    # Add refresh button to recalculate requirements
+    col_refresh, col_spacer = st.columns([1, 3])
+    with col_refresh:
+        if st.button("🔄 Refresh Requirements", help="Recalculate which fields are required based on current mappings"):
+            # Store current mapping values from session state
+            current_session_mappings = {}
+            for key in st.session_state:
+                if key.startswith('field_mapping_'):
+                    field_name = key.replace('field_mapping_', '')
+                    value = st.session_state[key]
+                    if value and value != "-- Select Column --":
+                        current_session_mappings[field_name] = value
+            
+            # Recalculate requirements
+            required_fields = get_dynamic_field_requirements(api_schema, current_session_mappings)
+            optional_fields = {k: v for k, v in api_schema.items() if k not in required_fields}
+            st.rerun()
+
     # Tabbed interface for better organization
     tab1, tab2 = st.tabs(["⭐ Required Fields", "📄 Optional Fields"])
     
@@ -1348,10 +1441,6 @@ def create_enhanced_mapping_with_validation(df, existing_configuration, data_pro
     # Get the API schema
     api_schema = get_full_api_schema()
     
-    # Separate required and optional fields
-    required_fields = {k: v for k, v in api_schema.items() if v.get('required', False)}
-    optional_fields = {k: v for k, v in api_schema.items() if not v.get('required', False)}
-    
     # Initialize mappings
     if existing_configuration:
         field_mappings = existing_configuration['field_mappings'].copy()
@@ -1385,6 +1474,10 @@ def create_enhanced_mapping_with_validation(df, existing_configuration, data_pro
                     st.success(f"✨ Generated {len(suggested_mappings)} smart mapping suggestions!")
             except Exception as e:
                 st.warning(f"⚠️ Could not generate smart mappings: {str(e)}")
+    
+    # Get dynamic requirements based on current mappings
+    required_fields = get_dynamic_field_requirements(api_schema, field_mappings)
+    optional_fields = {k: v for k, v in api_schema.items() if k not in required_fields}
     
     # Enhanced progress tracking
     total_required = len(required_fields)
@@ -1818,9 +1911,10 @@ def create_learning_enhanced_mapping_interface(df, existing_mappings, data_proce
                 for suggestion in suggestions[:3]:  # Show top 3
                     st.warning(f"💡 {suggestion['suggestion']}")
     
-    # Separate required and optional fields
-    required_fields = {k: v for k, v in api_schema.items() if v.get('required', False)}
-    optional_fields = {k: v for k, v in api_schema.items() if not v.get('required', False)}
+    # Get dynamic requirements based on current mappings
+    current_mappings = st.session_state.get('field_mappings', {})
+    required_fields = get_dynamic_field_requirements(api_schema, current_mappings)
+    optional_fields = {k: v for k, v in api_schema.items() if k not in required_fields}
     
     # Progress tracking - use current session state if available
     total_required = len(required_fields)
