@@ -36,7 +36,8 @@ from src.frontend.ui_components import (
     create_learning_enhanced_mapping_interface,
     create_learning_analytics_dashboard,
     update_learning_with_processing_results,
-    get_full_api_schema
+    get_full_api_schema,
+    get_dynamic_field_requirements
 )
 
 # Import configuration update functions
@@ -337,7 +338,6 @@ def _render_configuration_status(config):
     total_required = 0
     
     if file_uploaded:
-        from src.frontend.ui_components import get_full_api_schema, get_dynamic_field_requirements
         api_schema = get_full_api_schema()
         current_mappings = st.session_state.get('field_mappings', field_mappings)
         required_fields = get_dynamic_field_requirements(api_schema, current_mappings)
@@ -886,7 +886,6 @@ def _render_consolidated_status():
     total_required = 0
     
     if file_uploaded:
-        from src.frontend.ui_components import get_full_api_schema, get_dynamic_field_requirements
         api_schema = get_full_api_schema()
         current_mappings = st.session_state.get('field_mappings', field_mappings)
         required_fields = get_dynamic_field_requirements(api_schema, current_mappings)
@@ -1866,7 +1865,6 @@ def _render_current_file_info():
                             with col1:
                                 st.metric("Mapped Fields", len(api_preview_data['mapped_fields']))
                             with col2:
-                                from src.frontend.ui_components import get_dynamic_field_requirements
                                 dynamic_required_fields = get_dynamic_field_requirements(get_full_api_schema(), field_mappings)
                                 required_fields = [f for f in api_preview_data['mapped_fields'] if f in dynamic_required_fields]
                                 st.metric("Required Fields", len(required_fields))
