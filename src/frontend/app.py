@@ -265,6 +265,15 @@ def main():
     # Ensure session ID for learning tracking
     ensure_session_id()
     
+    # Force clear any cached field count calculations on app restart
+    if 'field_counts_cleared' not in st.session_state:
+        # Clear any cached field count related session state
+        keys_to_clear = [k for k in st.session_state.keys() if 'required' in k.lower() or 'field_count' in k.lower()]
+        for key in keys_to_clear:
+            if key in st.session_state:
+                del st.session_state[key]
+        st.session_state.field_counts_cleared = True
+    
     # Check for critical backup needs at app startup
     check_critical_backup_needs(db_manager)
     
