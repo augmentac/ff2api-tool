@@ -970,9 +970,29 @@ class DataProcessor:
         
         for api_field, csv_column in field_mappings.items():
             if csv_column.startswith("MANUAL_VALUE:"):
-                # Handle manual values - apply to all rows
+                # Enhanced manual value processing with enum validation
                 manual_value = csv_column.replace("MANUAL_VALUE:", "")
+                
+                # Validate against enum if applicable
+                if api_field in self.api_schema:
+                    field_info = self.api_schema[api_field]
+                    if field_info.get('enum'):
+                        enum_values = field_info['enum']
+                        if manual_value not in enum_values:
+                            self.logger.warning(f"Manual value '{manual_value}' not in enum {enum_values} for {api_field}")
+                            # Try to map common alternatives
+                            mapped_value = self._map_enum_value(api_field, manual_value)
+                            if mapped_value != manual_value:
+                                self.logger.info(f"Mapped '{manual_value}' to '{mapped_value}' for {api_field}")
+                                manual_value = mapped_value
+                            else:
+                                # Cannot map - use first valid enum value as fallback
+                                self.logger.warning(f"Using fallback value '{enum_values[0]}' for {api_field}")
+                                manual_value = enum_values[0]
+                
+                # Apply manual value to all records
                 mapped_df[api_field] = [manual_value] * len(df)
+                self.logger.info(f"Applied manual value '{manual_value}' to {len(df)} records for {api_field}")
             elif csv_column.startswith("DEFAULT_VALUE:"):
                 # Handle default values - apply to all rows
                 default_value = csv_column.replace("DEFAULT_VALUE:", "")

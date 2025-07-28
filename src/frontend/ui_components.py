@@ -221,6 +221,252 @@ def sync_field_mapping_state(db_mappings, session_mappings):
     
     return synchronized_mappings
 
+# Common enum fields registry for better UX
+COMMON_ENUM_FIELDS = {
+    'load.mode': {
+        'values': ['FTL', 'LTL', 'DRAYAGE'],
+        'descriptions': {
+            'FTL': 'Full Truckload - Single shipper uses entire truck',
+            'LTL': 'Less Than Truckload - Shared truck space', 
+            'DRAYAGE': 'Short-distance transport (port/rail to warehouse)'
+        },
+        'common_alternatives': {
+            'full truckload': 'FTL', 'ftl': 'FTL',
+            'less than truckload': 'LTL', 'ltl': 'LTL',
+            'drayage': 'DRAYAGE'
+        }
+    },
+    'load.rateType': {
+        'values': ['SPOT', 'CONTRACT', 'DEDICATED', 'PROJECT'],
+        'descriptions': {
+            'SPOT': 'One-time market rate shipment',
+            'CONTRACT': 'Pre-negotiated rates and terms',
+            'DEDICATED': 'Reserved carrier capacity',
+            'PROJECT': 'Specialized project shipping'
+        }
+    },
+    'load.status': {
+        'values': ['DRAFT', 'CUSTOMER_CONFIRMED', 'COVERED', 'DISPATCHED', 'AT_PICKUP', 'IN_TRANSIT', 'AT_DELIVERY', 'DELIVERED', 'POD_COLLECTED', 'CANCELED', 'ERROR'],
+        'descriptions': {
+            'DRAFT': 'Load created but not confirmed',
+            'CUSTOMER_CONFIRMED': 'Customer has confirmed the load',
+            'COVERED': 'Carrier assigned to load',
+            'DISPATCHED': 'Load dispatched to carrier'
+        }
+    }
+}
+
+def validate_manual_value_realtime(field_path, manual_value, api_schema):
+    """Real-time validation for manual values with enum support"""
+    if field_path not in api_schema:
+        return False, "Field not found in API schema"
+    
+    field_info = api_schema[field_path]
+    
+    # Enum validation (most important)
+    if field_info.get('enum'):
+        enum_values = field_info['enum']
+        if manual_value not in enum_values:
+            return False, f"Must be one of: {', '.join(enum_values)}"
+        return True, f"✅ Valid enum value"
+    
+    # Type validation
+    field_type = field_info.get('type', 'string')
+    if field_type == 'number':
+        try:
+            float(manual_value)
+            return True, "✅ Valid number"
+        except ValueError:
+            return False, "Must be a valid number"
+    
+    elif field_type == 'date':
+        try:
+            import pandas as pd
+            pd.to_datetime(manual_value)
+            return True, "✅ Valid date format"
+        except:
+            return False, "Must be valid date (YYYY-MM-DD or ISO format)"
+    
+    # String fields - generally valid
+    return True, "✅ Valid text value"
+
+def create_smart_manual_value_interface(field_path, field_info, current_value=None):
+    """Intelligent manual value interface that adapts to field type"""
+    
+    # Extract current manual value if exists
+    current_manual = None
+    if current_value and current_value.startswith("MANUAL_VALUE:"):
+        current_manual = current_value.replace("MANUAL_VALUE:", "")
+    
+    st.markdown(f"**Set Manual Default Value for:** `{field_path}`")
+    st.caption(f"📋 {field_info.get('description', 'No description available')}")
+    
+    # Check if field has enum constraints
+    if field_info.get('enum'):
+        # ENUM FIELD - Provide dropdown selection
+        enum_options = field_info['enum']
+        st.markdown(f"*Valid options: {', '.join(enum_options)}*")
+        
+        # Find current selection index
+        current_index = 0
+        if current_manual and current_manual in enum_options:
+            current_index = enum_options.index(current_manual) + 1
+        
+        selected_value = st.selectbox(
+            f"Select default value for {field_info.get('description', field_path)}",
+            options=['-- Select Value --'] + enum_options,
+            index=current_index,
+            key=f"manual_enum_{field_path}",
+            help=f"This value will be applied to ALL records for {field_path}"
+        )
+        
+        # Show enum description if available
+        if selected_value != '-- Select Value --':
+            enum_info = COMMON_ENUM_FIELDS.get(field_path, {})
+            descriptions = enum_info.get('descriptions', {})
+            if selected_value in descriptions:
+                st.caption(f"💡 {descriptions[selected_value]}")
+        
+        return selected_value if selected_value != '-- Select Value --' else None
+        
+    else:
+        # NON-ENUM FIELD - Provide text input with validation
+        field_type = field_info.get('type', 'string')
+        
+        # Provide type-specific input
+        if field_type == 'number':
+            manual_value = st.number_input(
+                f"Default numeric value for {field_info.get('description', field_path)}",
+                value=float(current_manual) if current_manual and current_manual.replace('.', '').replace('-', '').isdigit() else 0.0,
+                key=f"manual_number_{field_path}",
+                help=f"This numeric value will be applied to ALL records for {field_path}"
+            )
+            return str(manual_value) if manual_value != 0.0 else None
+            
+        elif field_type == 'date':
+            manual_value = st.text_input(
+                f"Default date value for {field_info.get('description', field_path)}",
+                value=current_manual or '',
+                key=f"manual_date_{field_path}",
+                placeholder="YYYY-MM-DD or YYYY-MM-DDTHH:MM:SS.000Z",
+                help=f"Date format: YYYY-MM-DD or full ISO format. Applied to ALL records for {field_path}"
+            )
+            
+            # Real-time validation for dates
+            if manual_value:
+                is_valid, msg = validate_manual_value_realtime(field_path, manual_value, {field_path: field_info})
+                if is_valid:
+                    st.success(msg)
+                else:
+                    st.error(msg)
+            
+            return manual_value if manual_value else None
+            
+        else:
+            # String field
+            manual_value = st.text_input(
+                f"Default text value for {field_info.get('description', field_path)}",
+                value=current_manual or '',
+                key=f"manual_text_{field_path}",
+                help=f"This text value will be applied to ALL records for {field_path}"
+            )
+            return manual_value if manual_value else None
+
+def show_enhanced_configuration_summary(field_mappings, api_schema):
+    """Show configuration summary with enum value highlights"""
+    manual_count = 0
+    enum_manual_count = 0
+    csv_mappings = 0
+    invalid_enum_count = 0
+    
+    for field, mapping in field_mappings.items():
+        if mapping.startswith("MANUAL_VALUE:"):
+            manual_count += 1
+            manual_value = mapping.replace("MANUAL_VALUE:", "")
+            
+            # Check if it's an enum field
+            if field in api_schema and api_schema[field].get('enum'):
+                enum_manual_count += 1
+                enum_values = api_schema[field]['enum']
+                if manual_value not in enum_values:
+                    invalid_enum_count += 1
+        else:
+            csv_mappings += 1
+    
+    # Display summary with color coding
+    col1, col2, col3 = st.columns(3)
+    
+    with col1:
+        st.metric(
+            "📋 Total Mappings", 
+            len(field_mappings),
+            help="Total number of mapped fields"
+        )
+    
+    with col2:
+        st.metric(
+            "📝 Manual Values", 
+            manual_count,
+            delta=f"{enum_manual_count} enum fields" if enum_manual_count > 0 else None,
+            help="Fields with manual default values"
+        )
+    
+    with col3:
+        st.metric(
+            "📊 CSV Mappings", 
+            csv_mappings,
+            help="Fields mapped to CSV columns"
+        )
+    
+    # Show detailed manual value information
+    if manual_count > 0:
+        with st.expander(f"📝 Manual Value Details ({manual_count} fields)", expanded=False):
+            for field, mapping in field_mappings.items():
+                if mapping.startswith("MANUAL_VALUE:"):
+                    manual_value = mapping.replace("MANUAL_VALUE:", "")
+                    
+                    col_field, col_value, col_type = st.columns([2, 1, 1])
+                    
+                    with col_field:
+                        st.text(field)
+                    
+                    with col_value:
+                        # Check if it's an enum field
+                        if field in api_schema and api_schema[field].get('enum'):
+                            enum_values = api_schema[field]['enum']
+                            if manual_value in enum_values:
+                                st.success(f"**{manual_value}**")
+                            else:
+                                st.error(f"**{manual_value}** ⚠️")
+                        else:
+                            st.info(f"**{manual_value}**")
+                    
+                    with col_type:
+                        if field in api_schema and api_schema[field].get('enum'):
+                            st.caption("🎯 Enum")
+                        elif field in api_schema:
+                            st.caption(f"📋 {api_schema[field].get('type', 'string')}")
+                        else:
+                            st.caption("❓ Unknown")
+    
+    # Warnings for invalid enum values
+    if invalid_enum_count > 0:
+        st.warning(f"⚠️ {invalid_enum_count} manual value(s) don't match their enum constraints. These may cause processing errors.")
+
+def save_manual_value_immediately(field, manual_value, db_manager, brokerage_name):
+    """Immediately save manual value to database and session state"""
+    from src.frontend.mapping_validation import _immediate_save_field_mapping
+    
+    manual_mapping = f"MANUAL_VALUE:{manual_value}"
+    
+    # Update session state
+    if 'field_mappings' not in st.session_state:
+        st.session_state.field_mappings = {}
+    st.session_state.field_mappings[field] = manual_mapping
+    
+    # Save to database immediately
+    _immediate_save_field_mapping(field, manual_mapping, db_manager, brokerage_name)
+
 def update_field_mapping_and_requirements(field, selected_column, current_mappings, api_schema):
     """Update field mapping and recalculate requirements based on new mapping"""
     # Update the mapping
@@ -1884,11 +2130,9 @@ def create_learning_enhanced_mapping_interface(df, existing_mappings, data_proce
     st.session_state.field_mappings = final_mappings.copy()
     st.session_state.mapping_source = 'synchronized'
     
-    # Debug information to track mapping initialization
+    # Enhanced configuration display with enum information
     if existing_mappings:
-        st.caption(f"📋 Loaded {len(existing_mappings)} mappings from database configuration")
-        if len(field_mappings) != len(existing_mappings):
-            st.caption(f"🔄 Merged with session state: {len(field_mappings)} total mappings")
+        show_enhanced_configuration_summary(existing_mappings, api_schema)
     
     # Generate smart suggestions with learning enhancement
     suggested_mappings = {}
@@ -2330,22 +2574,54 @@ def create_learning_enhanced_field_mapping_row(field: str, field_info: dict, df,
                 st.session_state.field_mappings = updated_mappings.copy()
     
     with col3:
-        # Manual value option
-        if st.button("✏️", key=manual_button_key, help="Enter manual value"):
-            manual_value = st.text_input(
-                f"Manual value for {field_info['description']}", 
-                key=manual_input_key,
-                placeholder="Enter value..."
-            )
-            if manual_value:
-                updated_mappings[field] = f"MANUAL_VALUE:{manual_value}"
-                # Update session state immediately to persist across tab switches
-                if 'field_mappings' not in st.session_state:
-                    st.session_state.field_mappings = updated_mappings.copy()
-                else:
-                    # Update only this field, preserving other mappings
-                    st.session_state.field_mappings[field] = f"MANUAL_VALUE:{manual_value}"
-                st.success(f"✅ Set manual value: {manual_value}")
+        # Enhanced manual value option with enum support
+        
+        # Show current manual value if exists
+        current_mapping = updated_mappings.get(field, None)
+        if current_mapping and current_mapping.startswith("MANUAL_VALUE:"):
+            manual_val = current_mapping.replace("MANUAL_VALUE:", "")
+            if field_info.get('enum'):
+                st.success(f"📝 **{manual_val}**")
+                st.caption("(enum value)")
+            else:
+                st.success(f"📝 **{manual_val}**")
+        
+        # Manual value button
+        if st.button("✏️ Manual", key=manual_button_key, help="Set manual default value", use_container_width=True):
+            st.session_state[f"show_manual_{field}"] = True
+        
+        # Manual value interface
+        if st.session_state.get(f"show_manual_{field}", False):
+            with st.container():
+                st.markdown("---")
+                
+                # Use the smart manual value interface
+                manual_value = create_smart_manual_value_interface(field, field_info, current_mapping)
+                
+                col_save, col_cancel = st.columns(2)
+                with col_save:
+                    if st.button("💾 Save", key=f"save_manual_{field}", use_container_width=True):
+                        if manual_value:
+                            # Save manual value
+                            save_manual_value_immediately(field, manual_value, db_manager, brokerage_name)
+                            updated_mappings[field] = f"MANUAL_VALUE:{manual_value}"
+                            
+                            # Update session state
+                            if 'field_mappings' not in st.session_state:
+                                st.session_state.field_mappings = updated_mappings.copy()
+                            else:
+                                st.session_state.field_mappings[field] = f"MANUAL_VALUE:{manual_value}"
+                            
+                            st.session_state[f"show_manual_{field}"] = False
+                            st.success(f"✅ Manual value '{manual_value}' saved!")
+                            st.rerun()
+                        else:
+                            st.warning("Please enter a value")
+                
+                with col_cancel:
+                    if st.button("❌ Cancel", key=f"cancel_manual_{field}", use_container_width=True):
+                        st.session_state[f"show_manual_{field}"] = False
+                        st.rerun()
 
 def create_learning_analytics_dashboard(db_manager, brokerage_name):
     """Create a dashboard showing learning analytics"""
