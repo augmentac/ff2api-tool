@@ -241,9 +241,12 @@ def _immediate_save_field_mapping(field: str, selected_column: str, db_manager, 
             bearer_token=config.get('bearer_token')
         )
         
-        # Update the session state configuration to reflect the save
+        # Update the session state configuration and field mappings to reflect the save
         st.session_state.selected_configuration['field_mappings'] = current_mappings
         st.session_state.selected_configuration['updated_at'] = datetime.now().isoformat()
+        
+        # ENHANCEMENT: Ensure session state field_mappings stays synchronized with database
+        st.session_state.field_mappings = current_mappings.copy()
         
     except Exception as e:
         raise e

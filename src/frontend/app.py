@@ -773,11 +773,15 @@ def _render_configuration_selection(db_manager, brokerage_name):
                 except:
                     pass
                 
-                # Clear workflow state and validation state
-                keys_to_clear = ['uploaded_df', 'uploaded_file_name', 'file_headers', 'validation_passed', 'header_comparison', 'field_mappings', 'mapping_tab_index', 'processing_results', 'load_results', 'processing_in_progress', 'validation_errors', 'mapping_section_expanded', 'processing_completed']
+                # Clear workflow state and validation state (preserve field_mappings)
+                keys_to_clear = ['uploaded_df', 'uploaded_file_name', 'file_headers', 'validation_passed', 'header_comparison', 'mapping_tab_index', 'processing_results', 'load_results', 'processing_in_progress', 'validation_errors', 'mapping_section_expanded', 'processing_completed']
                 for key in keys_to_clear:
                     if key in st.session_state:
                         del st.session_state[key]
+                
+                # Intelligently update field_mappings from selected configuration
+                if selected_config and selected_config.get('field_mappings'):
+                    st.session_state.field_mappings = selected_config['field_mappings'].copy()
                 
                 st.rerun()
             

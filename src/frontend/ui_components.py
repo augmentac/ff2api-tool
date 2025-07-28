@@ -191,7 +191,35 @@ def get_dynamic_field_requirements(api_schema, current_mappings):
                 if field in api_schema and api_schema[field].get('required') == 'conditional':
                     dynamic_required[field] = api_schema[field]
     
+    # ENHANCEMENT: Preserve previously mapped fields as "user required"
+    # This ensures optional fields don't disappear from UI after mapping
+    if current_mappings:
+        previously_mapped = set(current_mappings.keys())
+        for field in previously_mapped:
+            if (field in api_schema and 
+                field not in dynamic_required and 
+                current_mappings[field] and 
+                current_mappings[field] != 'Select column...'):
+                # Mark as user-mapped to keep in UI
+                field_info = api_schema[field].copy()
+                field_info['user_mapped'] = True
+                field_info['display_category'] = 'previously_mapped'
+                dynamic_required[field] = field_info
+    
     return dynamic_required
+
+def sync_field_mapping_state(db_mappings, session_mappings):
+    """Ensure database and session state are synchronized"""
+    # Merge mappings with session state taking precedence for active changes
+    synchronized_mappings = db_mappings.copy() if db_mappings else {}
+    
+    if session_mappings:
+        # Only update if session has newer valid changes
+        for field, mapping in session_mappings.items():
+            if mapping and mapping != 'Select column...':
+                synchronized_mappings[field] = mapping
+    
+    return synchronized_mappings
 
 def update_field_mapping_and_requirements(field, selected_column, current_mappings, api_schema):
     """Update field mapping and recalculate requirements based on new mapping"""
@@ -1839,31 +1867,22 @@ def create_learning_enhanced_mapping_interface(df, existing_mappings, data_proce
     # FIXED: Single source of truth - database first approach
     field_mappings = {}
     
-    # Always start with database mappings as the authoritative source
-    if existing_mappings:
-        field_mappings = existing_mappings.copy()
-        # Initialize session state with complete database mappings
-        st.session_state.field_mappings = field_mappings.copy()
-        st.session_state.mapping_source = 'database'
-    elif not st.session_state.get('field_mappings'):
-        # No database mappings and no session state - start fresh
-        st.session_state.field_mappings = {}
-        st.session_state.mapping_source = 'new'
-    else:
-        # Use session state only if no database mappings exist (new configuration)
-        field_mappings = st.session_state.field_mappings.copy()
-        st.session_state.mapping_source = 'session'
+    # Enhanced restoration logic to preserve all mapped fields
+    authoritative_mappings = existing_mappings.copy() if existing_mappings else {}
+    session_mappings = st.session_state.get('field_mappings', {})
     
-    # Validate mapping completeness - don't let incomplete session state override complete database mappings
-    if existing_mappings and st.session_state.get('field_mappings'):
-        db_mapping_count = len([v for v in existing_mappings.values() if v and v != 'Select column...'])
-        session_mapping_count = len([v for v in st.session_state.field_mappings.values() if v and v != 'Select column...'])
-        
-        # If database has more complete mappings, prefer database
-        if db_mapping_count > session_mapping_count:
-            field_mappings = existing_mappings.copy()
-            st.session_state.field_mappings = field_mappings.copy()
-            st.session_state.mapping_source = 'database_preferred'
+    # Merge intelligently - database as base, session state for active changes
+    final_mappings = authoritative_mappings.copy()
+    if session_mappings:
+        # Only update if session has valid mappings (not cleared by UI reset)
+        for field, mapping in session_mappings.items():
+            if mapping and mapping != 'Select column...':
+                final_mappings[field] = mapping
+    
+    # Ensure session state has complete mapping set (preserves optional fields)
+    field_mappings = final_mappings
+    st.session_state.field_mappings = final_mappings.copy()
+    st.session_state.mapping_source = 'synchronized'
     
     # Debug information to track mapping initialization
     if existing_mappings:
