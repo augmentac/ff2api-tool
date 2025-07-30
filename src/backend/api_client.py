@@ -292,7 +292,7 @@ class LoadsAPIClient:
         return results
     
     def validate_connection(self) -> Dict[str, Any]:
-        """Test API connection and credentials using minimal required payload"""
+        """Test API connection and credentials using healthcheck endpoint (no data creation)"""
         # Check authentication setup
         if self.auth_type == 'api_key':
             # For API key auth, check if token refresh was successful
@@ -304,104 +304,32 @@ class LoadsAPIClient:
                 return {'success': False, 'message': 'Bearer token not provided.'}
         
         try:
-            # Minimal payload with only required top-level objects and core load fields
-            test_payload = {
-                "load": {
-                    "loadNumber": "LOAD123456",
-                    "mode": "FTL",
-                    "rateType": "SPOT",
-                    "status": "DRAFT",
-                    "equipment": {
-                        "equipmentType": "DRY_VAN"
-                    },
-                    "route": [
-                        {
-                            "sequence": 1,
-                            "stopActivity": "PICKUP",
-                            "address": {
-                                "street1": "123 Main St",
-                                "city": "Chicago",
-                                "stateOrProvince": "IL",
-                                "postalCode": "60601",
-                                "country": "US"
-                            },
-                            "expectedArrivalWindowStart": "2025-08-01T08:00:00Z",
-                            "expectedArrivalWindowEnd": "2025-08-01T10:00:00Z"
-                        },
-                        {
-                            "sequence": 2,
-                            "stopActivity": "DELIVERY",
-                            "address": {
-                                "street1": "456 Oak Ave",
-                                "city": "Milwaukee",
-                                "stateOrProvince": "WI",
-                                "postalCode": "53202",
-                                "country": "US"
-                            },
-                            "expectedArrivalWindowStart": "2025-08-02T14:00:00Z",
-                            "expectedArrivalWindowEnd": "2025-08-02T16:00:00Z"
-                        }
-                    ],
-                    "items": [
-                        {
-                            "quantity": 1,
-                            "totalWeightLbs": 1000
-                        }
-                    ]
-                },
-                "brokerage": {
-                    "contacts": [
-                        {
-                            "name": "Jane Broker",
-                            "email": "jane.broker@example.com",
-                            "phone": "+15555551234",
-                            "role": "ACCOUNT_MANAGER"
-                        }
-                    ]
-                },
-                "customer": {
-                    "customerId": "cust-0001",
-                    "name": "Acme Corporation"
-                }
-            }
+            # Use healthcheck endpoint to validate connection and authentication without creating data
+            response = self.session.get("https://load.prod.goaugment.com/unstable/search/healthcheck", timeout=30)
             
-            response = self.session.post(f"{self.base_url}/v2/loads", json=test_payload, timeout=30)
-            
-            # Handle different response codes
-            if response.status_code == 201:
+            # Handle healthcheck response codes
+            if response.status_code == 200:
                 try:
                     response_data = response.json()
-                    # Extract load number from response
-                    load_number = (response_data.get('loadNumber') or 
-                                 response_data.get('load', {}).get('loadNumber') or
-                                 response_data.get('id'))
-                    return {'success': True, 'message': f'Connection successful! Load would be created.\nAPI Response: {response_data}'}
+                    return {'success': True, 'message': f'Connection and authentication successful! Healthcheck passed.'}
                 except (json.JSONDecodeError, ValueError) as json_error:
-                    logging.warning(f"Could not parse HTTP 201 response as JSON: {json_error}")
-                    return {'success': True, 'message': f'Connection successful! Load would be created (HTTP 201 - Created)'}
-            elif response.status_code == 200:
-                try:
-                    response_data = response.json()
-                    # Extract load number from response
-                    load_number = (response_data.get('loadNumber') or 
-                                 response_data.get('load', {}).get('loadNumber') or
-                                 response_data.get('id'))
-                    return {'success': True, 'message': f'Connection successful! API responded with: {response_data}'}
-                except (json.JSONDecodeError, ValueError) as json_error:
-                    logging.warning(f"Could not parse HTTP 200 response as JSON: {json_error}")
-                    return {'success': True, 'message': f'Connection successful! API responded (HTTP 200 - OK)'}
+                    logging.warning(f"Could not parse healthcheck response as JSON: {json_error}")
+                    return {'success': True, 'message': 'Connection and authentication successful! Healthcheck passed.'}
             elif response.status_code == 204:
-                return {'success': True, 'message': 'Connection successful! (HTTP 204 - No Content - API accepted the request)'}
+                return {'success': True, 'message': 'Connection and authentication successful! Healthcheck passed (no content).'}
+            elif response.status_code == 201:
+                # Unexpected for healthcheck but handle gracefully
+                return {'success': True, 'message': 'Connection and authentication successful! Healthcheck passed.'}
             elif response.status_code == 401:
                 # Handle 401 based on auth type
                 if self.auth_type == 'api_key':
                     # Try to refresh token once on 401 for API key auth
                     refresh_result = self._refresh_token()
                     if refresh_result['success']:
-                        # Retry the request with new token
-                        response = self.session.post(f"{self.base_url}/v2/loads", json=test_payload, timeout=30)
+                        # Retry the healthcheck request with new token
+                        response = self.session.get("https://load.prod.goaugment.com/unstable/search/healthcheck", timeout=30)
                         if response.status_code in [200, 201, 204]:
-                            return {'success': True, 'message': 'Connection successful! (Token refreshed)'}
+                            return {'success': True, 'message': 'Connection and authentication successful! (Token refreshed)'}
                         else:
                             return {'success': False, 'message': 'Authentication failed even after token refresh. Please check your API key.'}
                     else:
