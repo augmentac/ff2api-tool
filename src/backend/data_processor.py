@@ -1181,7 +1181,13 @@ class DataProcessor:
                     # Convert single route object to array
                     load_payload['load']['route'] = [route_data]
             
-            # Apply API-specific validation fixes
+            # Fix array structures to ensure proper formatting (before validation)
+            self._fix_array_structures(load_payload)
+            
+            # Normalize field names to match API schema case requirements (before validation)
+            self._normalize_field_names(load_payload)
+            
+            # Apply API-specific validation fixes (after normalization)
             self._apply_api_validation_fixes(load_payload)
             
             # Clean up any empty nested structures, but preserve required top-level objects
@@ -1430,6 +1436,92 @@ class DataProcessor:
                             # Ensure each contact has required role field with valid enum value
                             if 'role' not in contact:
                                 contact['role'] = 'ACCOUNT_MANAGER'  # Default role - valid enum value
+    
+    def _fix_array_structures(self, obj: Dict[str, Any]) -> None:
+        """Fix any objects with numeric keys to proper arrays"""
+        for key, value in obj.items():
+            if isinstance(value, dict):
+                # Check if this dict has only numeric string keys
+                keys = list(value.keys())
+                if keys and all(k.isdigit() for k in keys):
+                    # Convert to array - sort by numeric value
+                    sorted_items = sorted([(int(k), v) for k, v in value.items()])
+                    # Create array with proper ordering
+                    array = []
+                    for i, (index, item) in enumerate(sorted_items):
+                        # Fill gaps with None if needed
+                        while len(array) <= index:
+                            array.append(None)
+                        array[index] = item
+                    # Remove trailing None values
+                    while array and array[-1] is None:
+                        array.pop()
+                    obj[key] = array
+                    value = array
+                
+                # Recursively fix nested structures
+                if isinstance(value, dict):
+                    self._fix_array_structures(value)
+                elif isinstance(value, list):
+                    for item in value:
+                        if isinstance(item, dict):
+                            self._fix_array_structures(item)
+            elif isinstance(value, list):
+                # Recursively fix items in arrays
+                for item in value:
+                    if isinstance(item, dict):
+                        self._fix_array_structures(item)
+    
+    def _normalize_field_names(self, obj: Dict[str, Any]) -> None:
+        """Normalize field names to match API schema case requirements"""
+        # Common field name mappings from lowercase to camelCase
+        field_name_mappings = {
+            'postalcode': 'postalCode',
+            'stateorprovince': 'stateOrProvince',
+            'totalweightlbs': 'totalWeightLbs',
+            'expectedarrivalwindowstart': 'expectedArrivalWindowStart',
+            'expectedarrivalwindowend': 'expectedArrivalWindowEnd',
+            'stopactivity': 'stopActivity',
+            'loadnumber': 'loadNumber',
+            'ratetype': 'rateType',
+            'equipmenttype': 'equipmentType',
+            'customername': 'customerName',
+            'customerid': 'customerId',
+            'dotnumber': 'dotNumber',
+            'mcnumber': 'mcNumber',
+            'trackingevents': 'trackingEvents',
+            'eventtype': 'eventType',
+            'packagetype': 'packageType',
+            'freightclass': 'freightClass',
+            'lengthininches': 'lengthInches',
+            'widthininches': 'widthInches',
+            'heightininches': 'heightInches',
+            'pickupsequence': 'pickupSequence',
+            'deliverysequence': 'deliverySequence',
+            'referencenumbers': 'referenceNumbers',
+            'mintemperaturef': 'minTemperatureF',
+            'maxtemperaturef': 'maxTemperatureF'
+        }
+        
+        keys_to_update = {}
+        
+        for key, value in obj.items():
+            # Check if key needs normalization
+            normalized_key = field_name_mappings.get(key.lower(), key)
+            if normalized_key != key:
+                keys_to_update[key] = normalized_key
+            
+            # Recursively normalize nested structures
+            if isinstance(value, dict):
+                self._normalize_field_names(value)
+            elif isinstance(value, list):
+                for item in value:
+                    if isinstance(item, dict):
+                        self._normalize_field_names(item)
+        
+        # Update keys after iteration to avoid modifying dict during iteration
+        for old_key, new_key in keys_to_update.items():
+            obj[new_key] = obj.pop(old_key)
     
     def _clean_empty_structures(self, obj: Dict[str, Any]) -> None:
         """Remove empty nested structures from the payload"""
