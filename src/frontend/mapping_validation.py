@@ -3,6 +3,7 @@
 import pandas as pd
 import streamlit as st
 from datetime import datetime
+from src.backend.api_client import get_brokerage_key
 
 def _render_update_configuration_form(config_to_update, brokerage_name, db_manager):
     """Render configuration update form that preserves field mappings"""
@@ -112,10 +113,13 @@ def _handle_update_configuration(config_to_update, brokerage_name, db_manager):
         try:
             from src.backend.api_client import LoadsAPIClient
             
+            # Get brokerage key for API validation
+            brokerage_key = get_brokerage_key(brokerage_name)
+            
             if auth_type == 'api_key':
-                client = LoadsAPIClient(api_base_url, api_key=api_key, auth_type='api_key')
+                client = LoadsAPIClient(api_base_url, api_key=api_key, auth_type='api_key', brokerage_key=brokerage_key)
             else:  # bearer_token
-                client = LoadsAPIClient(api_base_url, bearer_token=bearer_token, auth_type='bearer_token')
+                client = LoadsAPIClient(api_base_url, bearer_token=bearer_token, auth_type='bearer_token', brokerage_key=brokerage_key)
             
             result = client.validate_connection()
         

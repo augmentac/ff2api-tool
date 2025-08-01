@@ -3,12 +3,41 @@ import json
 import logging
 from typing import Dict, List, Any, Optional
 
+def get_brokerage_key(brokerage_name: str) -> str:
+    """Convert brokerage name to API brokerage key"""
+    # Mapping from display names to API keys
+    BROKERAGE_KEY_MAPPING = {
+        'schneider logistics': 'schneider-logistics-test',
+        'schneider': 'schneider-logistics-test',
+        'default': 'schneider-logistics-test',  # fallback
+    }
+    
+    # Normalize the brokerage name for lookup
+    normalized_name = brokerage_name.lower().strip()
+    
+    # Try exact match first
+    if normalized_name in BROKERAGE_KEY_MAPPING:
+        return BROKERAGE_KEY_MAPPING[normalized_name]
+    
+    # Try partial matches
+    for key, value in BROKERAGE_KEY_MAPPING.items():
+        if key in normalized_name or normalized_name in key:
+            return value
+    
+    # Fallback to default or generate from name
+    if 'schneider' in normalized_name.lower():
+        return 'schneider-logistics-test'
+    
+    # Generate key from name as fallback
+    return normalized_name.lower().replace(' ', '-').replace('_', '-')
+
 class LoadsAPIClient:
-    def __init__(self, base_url: str, api_key: Optional[str] = None, bearer_token: Optional[str] = None, auth_type: str = 'api_key'):
+    def __init__(self, base_url: str, api_key: Optional[str] = None, bearer_token: Optional[str] = None, auth_type: str = 'api_key', brokerage_key: Optional[str] = None):
         self.base_url = base_url.rstrip('/') if base_url else "https://api.prod.goaugment.com"
         self.api_key = api_key
         self.auth_type = auth_type
         self.bearer_token = bearer_token
+        self.brokerage_key = brokerage_key
         self.session = requests.Session()
         self.session.headers.update({
             'Content-Type': 'application/json'
@@ -292,16 +321,63 @@ class LoadsAPIClient:
         return results
     
     def validate_connection(self) -> Dict[str, Any]:
-        """Test API connection and credentials using healthcheck endpoint (no data creation)"""
+        """Test API connection and credentials"""
+        if self.auth_type == 'bearer_token':
+            # Use NEW endpoint for bearer token validation
+            return self._validate_bearer_token_connection()
+        else:
+            # Keep EXISTING logic for API key validation
+            return self._validate_api_key_connection()
+    
+    def _validate_bearer_token_connection(self) -> Dict[str, Any]:
+        """Validate bearer token using new token endpoint with brokerageKey"""
+        # Check if bearer token was provided
+        if not self.bearer_token:
+            return {'success': False, 'message': 'Bearer token not provided.'}
+        
+        # Check if brokerage key was provided
+        if not self.brokerage_key:
+            return {'success': False, 'message': 'Brokerage key required for bearer token validation.'}
+        
+        try:
+            # Use new token endpoint with brokerageKey parameter
+            url = f"{self.base_url}/token"
+            params = {'brokerageKey': self.brokerage_key}
+            response = self.session.get(url, params=params, timeout=30)
+            
+            if response.status_code == 200:
+                try:
+                    response_data = response.json()
+                    # Store access_token and expiresAt if needed for future use
+                    if 'access_token' in response_data:
+                        self.access_token = response_data['access_token']
+                    if 'expiresAt' in response_data:
+                        self.expires_at = response_data['expiresAt']
+                    return {'success': True, 'message': 'Bearer token validation successful!'}
+                except (json.JSONDecodeError, ValueError) as json_error:
+                    logging.warning(f"Could not parse token response as JSON: {json_error}")
+                    return {'success': True, 'message': 'Bearer token validation successful!'}
+            elif response.status_code == 401:
+                try:
+                    error_data = response.json()
+                    error_message = error_data.get('message', 'Invalid bearer token')
+                    return {'success': False, 'message': f'Unauthorized: {error_message}'}
+                except (json.JSONDecodeError, ValueError):
+                    return {'success': False, 'message': 'Bearer token authentication failed. Please check your bearer token.'}
+            else:
+                return {'success': False, 'message': f'Unexpected response: HTTP {response.status_code}'}
+                
+        except Exception as e:
+            logging.error(f"Bearer token validation error: {e}")
+            return {'success': False, 'message': f'Connection error: {str(e)}'}
+    
+    def _validate_api_key_connection(self) -> Dict[str, Any]:
+        """Validate API key using existing healthcheck endpoint"""
         # Check authentication setup
         if self.auth_type == 'api_key':
             # For API key auth, check if token refresh was successful
             if not self.bearer_token:
                 return {'success': False, 'message': 'Token refresh failed. Please check your API key.'}
-        elif self.auth_type == 'bearer_token':
-            # For bearer token auth, check if token was provided
-            if not self.bearer_token:
-                return {'success': False, 'message': 'Bearer token not provided.'}
         
         try:
             # Use healthcheck endpoint to validate connection and authentication without creating data
@@ -321,22 +397,17 @@ class LoadsAPIClient:
                 # Unexpected for healthcheck but handle gracefully
                 return {'success': True, 'message': 'Connection and authentication successful! Healthcheck passed.'}
             elif response.status_code == 401:
-                # Handle 401 based on auth type
-                if self.auth_type == 'api_key':
-                    # Try to refresh token once on 401 for API key auth
-                    refresh_result = self._refresh_token()
-                    if refresh_result['success']:
-                        # Retry the healthcheck request with new token
-                        response = self.session.get("https://load.prod.goaugment.com/unstable/search/healthcheck", timeout=30)
-                        if response.status_code in [200, 201, 204]:
-                            return {'success': True, 'message': 'Connection and authentication successful! (Token refreshed)'}
-                        else:
-                            return {'success': False, 'message': 'Authentication failed even after token refresh. Please check your API key.'}
+                # Try to refresh token once on 401 for API key auth
+                refresh_result = self._refresh_token()
+                if refresh_result['success']:
+                    # Retry the healthcheck request with new token
+                    response = self.session.get("https://load.prod.goaugment.com/unstable/search/healthcheck", timeout=30)
+                    if response.status_code in [200, 201, 204]:
+                        return {'success': True, 'message': 'Connection and authentication successful! (Token refreshed)'}
                     else:
-                        return {'success': False, 'message': f'Authentication failed. Token refresh error: {refresh_result["message"]}'}
+                        return {'success': False, 'message': 'Authentication failed even after token refresh. Please check your API key.'}
                 else:
-                    # Bearer token authentication - no refresh available
-                    return {'success': False, 'message': 'Bearer token authentication failed. Please check your bearer token.'}
+                    return {'success': False, 'message': f'Authentication failed. Token refresh error: {refresh_result["message"]}'}
             elif response.status_code == 403:
                 return {'success': False, 'message': 'Access forbidden. Check your API key permissions.'}
             elif response.status_code == 404:
@@ -346,28 +417,24 @@ class LoadsAPIClient:
                     error_details = response.json()
                     return {
                         'success': False,
-                        'error': f'Bad request: {error_details}',
-                        'status_code': response.status_code
+                        'message': f'Bad request: {error_details}',
                     }
                 except json.JSONDecodeError:
                     return {
                         'success': False,
-                        'error': f'Bad request: {response.text}',
-                        'status_code': response.status_code
+                        'message': f'Bad request: {response.text}',
                     }
             elif response.status_code == 422:
                 try:
                     error_details = response.json()
                     return {
                         'success': False,
-                        'error': f'Validation error: {error_details}',
-                        'status_code': response.status_code
+                        'message': f'Validation error: {error_details}',
                     }
                 except json.JSONDecodeError:
                     return {
                         'success': False,
-                        'error': f'Validation error: {response.text}',
-                        'status_code': response.status_code
+                        'message': f'Validation error: {response.text}',
                     }
             else:
                 # Other error codes
@@ -375,14 +442,12 @@ class LoadsAPIClient:
                     error_details = response.json()
                     return {
                         'success': False,
-                        'error': f'API error: {error_details}',
-                        'status_code': response.status_code
+                        'message': f'API error: {error_details}',
                     }
                 except json.JSONDecodeError:
                     return {
                         'success': False,
-                        'error': f'API error: {response.text}',
-                        'status_code': response.status_code
+                        'message': f'API error: {response.text}',
                     }
                 
         except requests.exceptions.Timeout:

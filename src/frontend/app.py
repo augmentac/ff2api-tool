@@ -12,7 +12,7 @@ import hashlib
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from src.backend.database import DatabaseManager
-from src.backend.api_client import LoadsAPIClient
+from src.backend.api_client import LoadsAPIClient, get_brokerage_key
 from src.backend.data_processor import DataProcessor
 from src.frontend.ui_components import (
     load_custom_css, 
@@ -1414,10 +1414,13 @@ def _handle_save_configuration(brokerage_name, db_manager):
         try:
             from src.backend.api_client import LoadsAPIClient
             
+            # Get brokerage key for API validation
+            brokerage_key = get_brokerage_key(brokerage_name)
+            
             if auth_type == 'api_key':
-                client = LoadsAPIClient(api_base_url, api_key=api_key, auth_type='api_key')
+                client = LoadsAPIClient(api_base_url, api_key=api_key, auth_type='api_key', brokerage_key=brokerage_key)
             else:  # bearer_token
-                client = LoadsAPIClient(api_base_url, bearer_token=bearer_token, auth_type='bearer_token')
+                client = LoadsAPIClient(api_base_url, bearer_token=bearer_token, auth_type='bearer_token', brokerage_key=brokerage_key)
             
             result = client.validate_connection()
         
@@ -2397,10 +2400,13 @@ def process_data_enhanced(df, field_mappings, api_credentials, brokerage_name, d
         auth_type = config.get('auth_type', 'api_key')  # Default to api_key for backward compatibility
         bearer_token = config.get('bearer_token')
         
+        # Get brokerage key for API validation
+        brokerage_key = get_brokerage_key(brokerage_name)
+        
         if auth_type == 'api_key':
-            client = LoadsAPIClient(api_credentials['base_url'], api_key=api_credentials['api_key'], auth_type='api_key')
+            client = LoadsAPIClient(api_credentials['base_url'], api_key=api_credentials['api_key'], auth_type='api_key', brokerage_key=brokerage_key)
         else:  # bearer_token
-            client = LoadsAPIClient(api_credentials['base_url'], bearer_token=bearer_token, auth_type='bearer_token')
+            client = LoadsAPIClient(api_credentials['base_url'], bearer_token=bearer_token, auth_type='bearer_token', brokerage_key=brokerage_key)
         
         connection_test = client.validate_connection()
         if not connection_test['success']:
@@ -2898,7 +2904,9 @@ def process_data(df, field_mappings, api_credentials, customer_name, data_proces
         update_progress("Pre-flight validation", 1, "Validating inputs and connections...")
         
         # Validate API credentials (this is a legacy function, using api_key auth only for now)
-        client = LoadsAPIClient(api_credentials['base_url'], api_key=api_credentials['api_key'], auth_type='api_key')
+        # Get brokerage key for API validation (customer_name is the brokerage in legacy function)
+        brokerage_key = get_brokerage_key(customer_name)
+        client = LoadsAPIClient(api_credentials['base_url'], api_key=api_credentials['api_key'], auth_type='api_key', brokerage_key=brokerage_key)
         connection_test = client.validate_connection()
         if not connection_test['success']:
             st.error(f"❌ API connection failed: {connection_test['message']}")

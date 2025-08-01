@@ -12,6 +12,7 @@ from typing import Dict, List, Optional, Any
 from datetime import datetime
 from src.backend.database import DatabaseManager
 from src.backend.data_processor import DataProcessor
+from src.backend.api_client import get_brokerage_key
 import os
 import time
 
@@ -1617,7 +1618,10 @@ def create_new_configuration_interface(brokerage_name):
         if st.button("🔍 Test API Connection", key="test_new_config_api"):
             try:
                 from src.backend.api_client import LoadsAPIClient
-                client = LoadsAPIClient(api_base_url, api_key=api_key, auth_type='api_key')
+                
+                # Get brokerage key for API validation
+                brokerage_key = get_brokerage_key(brokerage_name)
+                client = LoadsAPIClient(api_base_url, api_key=api_key, auth_type='api_key', brokerage_key=brokerage_key)
                 result = client.validate_connection()
                 
                 if result['success']:
