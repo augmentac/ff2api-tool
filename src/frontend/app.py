@@ -2298,6 +2298,9 @@ def _render_results_summary_section():
                             
                             if len(failed_loads) > 20:
                                 st.caption(f"... and {len(failed_loads) - 20} more failed loads")
+                            
+                            # Add full error details for truncated errors
+                            render_full_error_details(failed_loads, "failed_loads")
         else:
             st.info("No processing results available")
 
@@ -2669,6 +2672,9 @@ def process_data_enhanced(df, field_mappings, api_credentials, brokerage_name, d
                             st.markdown(f"• {load_number}")
                         if len(failed_loads) > 10:
                             st.caption(f"... and {len(failed_loads) - 10} more")
+                
+                # Add full error details for truncated errors
+                render_full_error_details(results, "load_results")
         
         # Suggest backup after successful processing
         auto_backup_suggestion()
@@ -2934,6 +2940,25 @@ def process_data(df, field_mappings, api_credentials, customer_name, data_proces
         
     except Exception as e:
         return [{'row': 1, 'errors': [f"Validation error: {str(e)}"]}]
+
+def render_full_error_details(results, section_type="errors"):
+    """Add expandable full error details section for truncated errors"""
+    if not results:
+        return
+    
+    # Find errors that have been truncated (longer than 50 chars)
+    errors_with_full_text = []
+    for r in results:
+        error_msg = r.get('error', '')
+        if error_msg and len(error_msg) > 50:
+            errors_with_full_text.append(r)
+    
+    if errors_with_full_text:
+        with st.expander(f"📋 View Full Error Details ({len(errors_with_full_text)} items)", expanded=False):
+            for result in errors_with_full_text:
+                load_id = result.get('load_number', f"Row {result.get('row_index', 'Unknown')}")
+                with st.expander(f"🔍 {load_id}", expanded=False):
+                    st.text_area("Full Error Message:", value=result.get('error', ''), height=100, disabled=True, key=f"error_detail_{id(result)}")
 
 def show_validation_errors(validation_errors):
     """Display validation errors in a user-friendly format"""

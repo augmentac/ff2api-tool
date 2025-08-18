@@ -915,6 +915,25 @@ def create_mapping_progress_indicator(total_fields: int, mapped_fields: int):
         st.progress(progress)
         st.write(f"{mapped_fields}/{total_fields} fields mapped ({percentage}% complete)")
 
+def render_full_validation_error_details(validation_errors):
+    """Add expandable full validation error details section for truncated errors"""
+    if not validation_errors:
+        return
+    
+    # Find errors that have been truncated (longer than 100 chars when converted to string)
+    errors_with_full_text = []
+    for error in validation_errors:
+        error_str = str(error)
+        if len(error_str) > 100:
+            errors_with_full_text.append(error)
+    
+    if errors_with_full_text:
+        with st.expander(f"📋 View Full Validation Error Details ({len(errors_with_full_text)} items)", expanded=False):
+            for i, error in enumerate(errors_with_full_text):
+                row_info = f"Row {error.get('row', i+1)}" if error.get('row') else f"Error {i+1}"
+                with st.expander(f"🔍 {row_info}", expanded=False):
+                    st.text_area("Full Error Details:", value=str(error), height=100, disabled=True, key=f"validation_error_detail_{id(error)}")
+
 def create_validation_summary_card(validation_errors: list, total_records: int):
     """Create a smart validation summary - detailed only when needed"""
     error_count = len(validation_errors)
@@ -933,6 +952,9 @@ def create_validation_summary_card(validation_errors: list, total_records: int):
                 st.caption(f"Row {error.get('row', i+1)}: {str(error)[:100]}...")
             if error_count > 5:
                 st.caption(f"... and {error_count - 5} more issues")
+            
+            # Add full error details for truncated errors
+            render_full_validation_error_details(validation_errors)
         return True
     else:
         # Significant issues - show details
@@ -953,6 +975,9 @@ def create_validation_summary_card(validation_errors: list, total_records: int):
                 st.error(f"Row {error.get('row', i+1)}: {str(error)}")
             if error_count > 10:
                 st.info(f"... and {error_count - 10} more validation issues")
+            
+            # Add full error details for truncated errors
+            render_full_validation_error_details(validation_errors)
         
         return False
 
