@@ -2474,6 +2474,11 @@ def process_data_enhanced(df, field_mappings, api_credentials, brokerage_name, d
         failed_count = 0
         
         for i, payload in enumerate(api_payloads):
+            # Prevent websocket timeout during long processing sessions
+            if i % 10 == 0:
+                st.empty()  # Send keep-alive ping to maintain websocket connection
+                time.sleep(0.1)  # Brief pause to prevent timeout
+            
             # Update API progress
             api_progress = int((i / len(api_payloads)) * 100)
             api_progress_bar.progress(api_progress)
