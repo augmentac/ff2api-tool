@@ -105,4 +105,4 @@ processed/
 # Configuration overrides
 config/local_*
 config/dev_*
-config/test_* 
+config/test_* config/encryption.key
