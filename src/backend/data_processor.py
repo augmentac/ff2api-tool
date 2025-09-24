@@ -1624,7 +1624,14 @@ class DataProcessor:
         # Date fields
         if any(date_field in field_path for date_field in ['expectedArrivalWindowStart', 'expectedArrivalWindowEnd', 'bidExpiration', 'nextEtaUtc', 'eventUtc', 'actualArrivalTime', 'actualCompletionTime']):
             try:
-                return pd.to_datetime(value).strftime('%Y-%m-%dT%H:%M:%S.000Z')
+                parsed_dt = pd.to_datetime(value)
+                
+                # For date-only inputs, use 14:00:00 UTC instead of midnight
+                # This ensures the date displays correctly across timezones (~8am US time)
+                if parsed_dt.time() == pd.Timestamp('00:00:00').time() and ':' not in str(value):
+                    parsed_dt = parsed_dt.replace(hour=14, minute=0, second=0, microsecond=0)
+                
+                return parsed_dt.strftime('%Y-%m-%dT%H:%M:%S.000Z')
             except:
                 return ""
         
